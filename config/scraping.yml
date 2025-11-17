@@ -1,0 +1,30 @@
+# config/scraping.yml
+# Scraping configuration for the URV SDGs tracker.
+
+# Input location for the import step.
+# - "archive": Read from archived snapshots in data/scrapings_archive/.
+# - "sandbox": Read directly from non-archived scraping folders in sandbox/data/.
+input_location: "archive"
+
+# Scraping mode for sandbox/data (only used when working with sandbox).
+# - "existing": Use an already scraped batch stored in sandbox/data/guides_scraping_<run_id>.
+# - "new": Create a new guides_scraping_<run_id> folder and (in the future) run automatic scraping.
+mode: "existing"
+
+# Root URL of the teaching guides website.
+root_url: "https://guiadocent.urv.cat/guido/public/centres"
+
+# Base directory where non-archived guides_scraping_* folders are stored.
+# These folders live outside version control under:
+#   sandbox/data/guides_scraping_<run_id>.
+sandbox_base_dir: "sandbox/data"
+
+# Base directory where archived guides_scraping_* snapshots are stored.
+# These folders are under version control:
+#   data/scrapings_archive/guides_scraping_<run_id>.
+archive_base_dir: "data/scrapings_archive"
+
+# Scraping batch identifier shared by sandbox and archive.
+# Typical pattern: yyyymmdd (for example, "20251115").
+run_id: "20250731"
+

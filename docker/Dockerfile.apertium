@@ -1,0 +1,65 @@
+# Usar la imagen base de Apertium
+FROM ghcr.io/apertium/base
+
+# Etiqueta del mantenedor
+LABEL maintainer="tu-email@example.com"
+
+# Instalar dependencias necesarias
+RUN apt-get -qq update && apt-get -qq install -y \
+    python3-full \
+    python3-pip \
+    python3-venv \
+    giella-core \
+    hfst-ospell \
+    apertium-eng-spa \
+    apertium-spa-cat \
+    apertium-eng-cat \
+    python3-lxml \
+    python3-requests \
+    python3-chardet \
+    fasttext libcld2-0 python3-fasttext \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar CLD2 MANUALMENTE (ya que no funciona con pip)
+WORKDIR /root/tmp
+ADD https://github.com/CLD2Owners/cld2/archive/refs/heads/master.zip cld2.zip
+RUN unzip -q cld2.zip && \
+    mv cld2-master cld2 && \
+    cd cld2/internal && \
+    CPPFLAGS='-std=c++98' ./compile_libs.sh && \
+    cp *.so /usr/lib/
+
+# También instalamos la versión de Python de CLD2 desde GitHub
+ADD https://github.com/aboSamoor/pycld2/archive/refs/heads/master.zip pycld2.zip
+RUN unzip -q pycld2.zip && \
+    cd pycld2-master && \
+    python3 setup.py install
+
+WORKDIR /root
+RUN rm -rf /root/tmp
+
+# Clonar el repositorio de Apertium APY
+RUN git clone https://github.com/apertium/apertium-apy.git /apertium-apy
+
+# Descargar el modelo de FastText para detección de idiomas
+RUN wget -O /apertium-apy/lid.176.bin https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
+
+# Crear y activar un entorno virtual
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
+# Instalar dependencias de Python en el entorno virtual
+RUN pip install --upgrade pip && pip install "numpy<2.0" flask flask-cors tornado chardet requests lxml fasttext
+
+# Compilar Apertium APY
+WORKDIR /apertium-apy
+RUN make -j4
+
+# Exponer el puerto necesario
+EXPOSE 2737
+
+# Comando para ejecutar APy
+ENTRYPOINT ["python3", "/apertium-apy/apy.py", "--lang-names", "/apertium-apy/langNames.db", "--fasttext-model", "/apertium-apy/lid.176.bin"]
+CMD ["/usr/share/apertium/modes", "--port", "2737"]
+

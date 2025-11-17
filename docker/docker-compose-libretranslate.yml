@@ -1,0 +1,15 @@
+# libretranslate limits cpu usage at 4 inte- and 4 intra-threads, meaning 4 cores.
+# Argos variables seem not tom be working right now.
+# For now, we use docker to increase it through use of several containers.
+services:
+  libretranslate:
+    container_name: libretranslate_service
+    image: libretranslate/libretranslate
+    ports:
+      - "5000:5000"
+    environment:
+      - LT_LOAD_ONLY=en,ca,es  # Load only English & Catalan models
+      - LT_NO_UPDATE=true   # Prevent automatic updates
+#      - ARGOS_INTER_THREADS=6  # Process 4 translations at the same time
+#      - ARGOS_INTRA_THREADS=6  # Each translation uses 2 CPU threads
+

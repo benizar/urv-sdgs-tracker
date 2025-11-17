@@ -1,0 +1,92 @@
+{
+  "_id": "course_details_list_guido",
+  "startUrl": ["https://guiadocent.urv.cat/guido/public/centres/494/ensenyaments/3563/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/494/ensenyaments/3561/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/494/ensenyaments/3562/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/494/ensenyaments/3484/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/494/ensenyaments/3456/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/494/ensenyaments/3546/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/497/ensenyaments/3550/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/497/ensenyaments/3489/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/497/ensenyaments/3442/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/493/ensenyaments/3551/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/500/ensenyaments/3541/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/501/ensenyaments/3553/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/498/ensenyaments/3544/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/498/ensenyaments/3552/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/498/ensenyaments/3545/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/498/ensenyaments/3548/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/498/ensenyaments/3581/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/498/ensenyaments/3582/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/498/ensenyaments/3549/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/502/ensenyaments/3514/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/499/ensenyaments/3543/assignatures/gestionar",
+"https://guiadocent.urv.cat/guido/public/centres/504/ensenyaments/3547/assignatures/gestionar"
+
+  ],
+  "selectors": [
+    {
+      "id": "table",
+      "parentSelectors": ["_root"],
+      "type": "SelectorElement",
+      "multiple": true,
+      "selector": "table[id^='listTable_']"
+    },
+    {
+      "id": "course_row",
+      "parentSelectors": ["table"],
+      "type": "SelectorElement",
+      "multiple": true,
+      "selector": "tbody tr"
+    },
+    {
+      "id": "code",
+      "parentSelectors": ["course_row"],
+      "type": "SelectorText",
+      "selector": "td:nth-of-type(1)",
+      "multiple": false
+    },
+    {
+      "id": "text_url",
+      "parentSelectors": ["course_row"],
+      "type": "SelectorText",
+      "selector": "td:nth-of-type(2)",
+      "multiple": false
+    },
+    {
+      "id": "url",
+      "parentSelectors": ["course_row"],
+      "type": "SelectorLink",
+      "selector": "td:nth-of-type(2) a",
+      "multiple": false
+    },
+    {
+      "id": "period",
+      "parentSelectors": ["course_row"],
+      "type": "SelectorText",
+      "selector": "td:nth-of-type(3)",
+      "multiple": false
+    },
+    {
+      "id": "type",
+      "parentSelectors": ["course_row"],
+      "type": "SelectorText",
+      "selector": "td:nth-of-type(4)",
+      "multiple": false
+    },
+    {
+      "id": "credits",
+      "parentSelectors": ["course_row"],
+      "type": "SelectorText",
+      "selector": "td:nth-of-type(5)",
+      "multiple": false
+    },
+    {
+      "id": "year",
+      "parentSelectors": ["table"],
+      "type": "SelectorText",
+      "selector": "thead tr:nth-of-type(1)",
+      "multiple": false
+    }
+  ]
+}

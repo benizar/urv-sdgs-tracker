@@ -1,0 +1,39 @@
+services:
+  libretranslate1:
+    image: libretranslate/libretranslate
+    environment:
+      - LT_LOAD_ONLY=en,ca,es
+      - LT_NO_UPDATE=true
+    networks:
+      - libretranslate_network
+
+  libretranslate2:
+    image: libretranslate/libretranslate
+    environment:
+      - LT_LOAD_ONLY=en,ca,es
+      - LT_NO_UPDATE=true
+    networks:
+      - libretranslate_network
+
+  libretranslate3:
+    image: libretranslate/libretranslate
+    environment:
+      - LT_LOAD_ONLY=en,ca,es
+      - LT_NO_UPDATE=true
+    networks:
+      - libretranslate_network
+
+  nginx:
+    container_name: nginx
+    image: nginx
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./nginx-libretranslate.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - libretranslate_network
+
+networks:
+  libretranslate_network:
+    driver: bridge
+

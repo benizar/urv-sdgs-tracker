@@ -1,0 +1,19 @@
+﻿version: "3.9"
+
+services:
+  rstudio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sdgs-tracker-rstudio:latest
+    container_name: sdgs-tracker-rstudio
+    cpus: 10
+    volumes:
+      - ./:/home/rstudio
+    environment:
+      - USER=rstudio
+      - PASSWORD=${RSTUDIO_PASSWORD:-rstudio1}
+    ports:
+      - "8787:8787"
+    restart: unless-stopped
+

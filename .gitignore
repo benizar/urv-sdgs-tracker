@@ -1,0 +1,106 @@
+########################
+# Project directories
+########################
+dist/
+sandbox/
+data/
+
+########################
+# targets pipeline cache
+########################
+_targets/
+.targets/
+
+########################
+# OS-specific files
+########################
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+Desktop.ini
+
+########################
+# R / RStudio
+########################
+.Rhistory
+.Rapp.history
+.RData
+.RDataTmp
+.Ruserdata
+.Rprofile
+.Rproj.user/
+*.Rproj
+
+# Temporary R directories (if they appear inside the repo)
+Rtmp*/
+
+# R check / build artifacts
+.Rcheck/
+Rplots.pdf
+
+.config/
+.local/
+
+########################
+# R Markdown / Quarto
+########################
+*_cache/
+cache/
+*.utf8.md
+*.knit.md
+*.nb.html
+
+# LaTeX / PDF build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+########################
+# R dependency managers
+########################
+# Usually you want to keep renv.lock under version control,
+# but ignore the local library.
+renv/library/
+renv/staging/
+
+# Packrat (legacy)
+packrat/lib*/
+packrat/src/
+.packrat/
+
+########################
+# Intermediate analysis data
+########################
+*.rds
+*.Rds
+*.fst
+*.feather
+*.parquet
+
+########################
+# Python
+########################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+########################
+# Node / JavaScript
+########################
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+

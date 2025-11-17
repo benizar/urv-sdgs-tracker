@@ -1,0 +1,16 @@
+# File: _targets.yaml
+# Global configuration for the {targets} pipeline
+
+# Where the pipeline cache is stored.
+# This is the default value, but we set it explicitly for clarity.
+store: ".targets"
+
+# Pipeline script. Again, this is the default name,
+# but declaring it makes the project more self-documented.
+script: "_targets.R"
+
+# How progress is reported during tar_make().
+# - "summary": compact summary
+# - other options: "verbose", "silent", "forecast", ...
+reporter_make: "summary"
+

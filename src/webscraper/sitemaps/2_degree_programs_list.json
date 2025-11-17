@@ -1,0 +1,27 @@
+{
+    "_id": "degree_programs_list",
+    "startUrl": [
+        "https://guiadocent.urv.cat/guido/public/centres/504/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/499/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/502/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/498/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/501/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/500/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/493/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/497/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/494/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/496/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/495/ensenyaments/gestionar",
+        "https://guiadocent.urv.cat/guido/public/centres/503/ensenyaments/gestionar"
+    ],
+    "selectors": [
+        {
+            "id": "degree_url",
+            "type": "SelectorLink",
+            "parentSelectors": ["_root"],
+            "selector": "td a",
+            "multiple": true
+        }
+    ]
+}
+

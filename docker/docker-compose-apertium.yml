@@ -1,0 +1,9 @@
+services:
+  apertium:
+    build:
+      context: .
+      dockerfile: Dockerfile.apertium
+    container_name: apertium-apy-ca-es-en
+    restart: unless-stopped
+    ports:
+      - "2737:2737"

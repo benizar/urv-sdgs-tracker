@@ -1,0 +1,42 @@
+services:
+  apertium1:
+    build:
+      context: .
+      dockerfile: Dockerfile.apertium
+    image: apertium-apy-ca-es-en
+    restart: unless-stopped
+    networks:
+      - apertium_network
+
+  apertium2:
+    image: apertium-apy-ca-es-en
+    restart: unless-stopped
+    networks:
+      - apertium_network
+
+  apertium3:
+    image: apertium-apy-ca-es-en
+    restart: unless-stopped
+    networks:
+      - apertium_network
+
+  apertium4:
+    image: apertium-apy-ca-es-en
+    restart: unless-stopped
+    networks:
+      - apertium_network
+
+  nginx:
+    container_name: nginx-apertium
+    image: nginx
+    ports:
+      - "2737:2737"
+    volumes:
+      - ./nginx-apertium.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - apertium_network
+
+networks:
+  apertium_network:
+    driver: bridge
+
