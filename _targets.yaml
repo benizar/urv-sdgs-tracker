@@ -1,16 +1,23 @@
-# File: _targets.yaml
 # Global configuration for the {targets} pipeline
+# See: https://books.ropensci.org/targets/config.html
 
-# Where the pipeline cache is stored.
-# This is the default value, but we set it explicitly for clarity.
-store: ".targets"
+main:
+  # Directory where {targets} stores its cache (metadata + results).
+  # Using a hidden folder keeps the project root cleaner.
+  store: ".targets"
 
-# Pipeline script. Again, this is the default name,
-# but declaring it makes the project more self-documented.
-script: "_targets.R"
+  # Entry-point R script that defines the pipeline:
+  # - tar_option_set()
+  # - list(...) with all targets (targets_scraping, targets_import, ...)
+  script: "_targets.R"
 
-# How progress is reported during tar_make().
-# - "summary": compact summary
-# - other options: "verbose", "silent", "forecast", ...
-reporter_make: "summary"
-
+  # Progress reporter used by tar_make():
+  #   "summary"   : compact status lines (good default for most projects)
+  #   "balanced"  : a bit more detail, but still concise
+  #   "verbose"   : one line per target, very chatty
+  #   "silent"    : no progress output
+  #   "timestamp" : only timestamps + high-level info
+  #
+  # You can change this value temporarily in R with:
+  #   tar_config_set(reporter_make = "verbose")
+  reporter_make: "balanced"

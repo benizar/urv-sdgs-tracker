@@ -4,18 +4,22 @@
 library(targets)
 
 targets_import <- list(
+  # Import-specific configuration extracted from the global pipeline config.
+  tar_target(
+    import_config,
+    pipeline_config$import
+  ),
+  
   # High-level raw guides object (list of data frames).
   #
-  # For now:
-  #   - Reads CSV files from the folder indicated by config/scraping.yml
-  #     (sandbox or archive).
-  # In the future:
-  #   - Can be switched to use an internal scraper without changing
-  #     the rest of the pipeline, as long as the return structure
-  #     of get_guides_raw(cfg) is preserved.
+  # Behaviour:
+  #   - Uses the `import` section of pipeline_config.
+  #   - If the local import directory already exists, it is used as-is.
+  #   - If it does not exist, the data are downloaded from the URL
+  #     specified in the config (and unzipped if needed).
   tar_target(
     guides_raw,
-    get_guides_raw(scraping_config)
+    get_guides_raw(import_config)
   ),
   
   # Main per-course index:

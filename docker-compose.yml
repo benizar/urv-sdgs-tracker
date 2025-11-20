@@ -1,10 +1,9 @@
-﻿version: "3.9"
 
 services:
   rstudio:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ./docker
+      dockerfile: Dockerfile.rstudio
     image: sdgs-tracker-rstudio:latest
     container_name: sdgs-tracker-rstudio
     cpus: 10
@@ -17,3 +16,23 @@ services:
       - "8787:8787"
     restart: unless-stopped
 
+  libretranslate:
+    container_name: libretranslate_service
+    image: libretranslate/libretranslate:v1.8.0
+    ports:
+      - "5000:5000"
+    environment:
+      - LT_LOAD_ONLY=en,ca,es  # Load only English & Catalan models
+      - LT_NO_UPDATE=true   # Prevent automatic updates
+      - ARGOS_INTER_THREADS=4  # Process 4 translations at the same time
+      - ARGOS_INTRA_THREADS=4  # Each translation uses 2 CPU threads
+    restart: unless-stopped
+
+  apertium:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.apertium
+    container_name: apertium_service
+    restart: unless-stopped
+    ports:
+      - "2737:2737"

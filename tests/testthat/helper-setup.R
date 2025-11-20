@@ -70,16 +70,13 @@ helper_env <- environment()
 # 3) Source project code needed in tests
 # -------------------------------------------------------------------
 
-# Common helpers
-source_dir_into(file.path(project_root, "src", "common"), env = helper_env)
-
-# Scraping pipeline (00) – contains load_scraping_config(), resolve_scraping_dir(), etc.
+# Common helpers (includes translation_helpers.R, etc.)
 source_dir_into(
-  file.path(project_root, "src", "pipelines", "00_scraping"),
+  file.path(project_root, "src", "common"),
   env = helper_env
 )
 
-# Import pipeline (01) – contains resolve_import_dir(), build_guides_raw(), get_guides_raw(), etc.
+# Import pipeline (01) – resolve_import_dir(), build_guides_raw(), ...
 source_dir_into(
   file.path(project_root, "src", "pipelines", "01_import"),
   env = helper_env
@@ -91,10 +88,29 @@ if (dir.exists(clean_dir)) {
   source_dir_into(clean_dir, env = helper_env)
 }
 
-# Optional: quick sanity check (you can comment these out later)
-if (!exists("resolve_import_dir", envir = helper_env)) {
-  warning("Function 'resolve_import_dir' not found after sourcing pipeline code.")
+# Translate pipeline (03) – translate_guides_table(), run_column_translations(), ...
+translate_dir <- file.path(project_root, "src", "pipelines", "03_translate")
+if (dir.exists(translate_dir)) {
+  source_dir_into(translate_dir, env = helper_env)
 }
-if (!exists("load_scraping_config", envir = helper_env)) {
-  warning("Function 'load_scraping_config' not found after sourcing pipeline code.")
+
+# SDG detection pipeline (04) – build_sdg_input_text(), run_text2sdg_detection(), ...
+sdg_dir <- file.path(project_root, "src", "pipelines", "04_detect_sdg")
+if (dir.exists(sdg_dir)) {
+  source_dir_into(sdg_dir, env = helper_env)
+}
+
+# -------------------------------------------------------------------
+# 4) Optional sanity checks (can be removed later)
+# -------------------------------------------------------------------
+if (!exists("resolve_import_dir", envir = helper_env)) {
+  warning("Function 'resolve_import_dir' not found after sourcing import pipeline code.")
+}
+
+if (!exists("build_sdg_input_text", envir = helper_env)) {
+  warning("Function 'build_sdg_input_text' not found after sourcing SDG pipeline code.")
+}
+
+if (!exists("translate_guides_table", envir = helper_env)) {
+  warning("Function 'translate_guides_table' not found after sourcing translate pipeline code.")
 }

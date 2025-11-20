@@ -39,10 +39,12 @@ if (dir.exists(common_dir)) {
 #    This avoids loading old scripts under src/pipelines/pre, etc.
 # -------------------------------------------------------------------
 pipeline_dirs <- c(
-  "src/pipelines/00_scraping",
+  "src/pipelines/00_config",
   "src/pipelines/01_import",
-  "src/pipelines/02_clean"
-  # "src/pipelines/03_translate",
+  "src/pipelines/02_clean",
+  "src/pipelines/03_translate",
+  "src/pipelines/04_detect_sdg",
+  "src/pipelines/99_logging"
   # ...
 )
 
@@ -64,12 +66,13 @@ lapply(pipeline_files, source)
 #    (each one is defined in its own folder under src/pipelines/)
 # -------------------------------------------------------------------
 list(
-  targets_scraping,     # 00_scraping/00_scraping_targets.R
-  targets_import,        # 01_import/01_import_targets.R
-  targets_clean        # 02_clean/02_clean_targets.R
-  # targets_translate,    # 03_translate/03_translate_targets.R
-  # targets_detect_sdg,   # 04_detect_sdg/04_detect_sdg_targets.R
+  targets_config,       # 00_config/00_config_targets.R
+  targets_import,       # 01_import/01_import_targets.R
+  targets_clean,        # 02_clean/02_clean_targets.R
+  targets_translate,    # 03_translate/03_translate_targets.R
+  targets_sdg,          # 04_detect_sdg/04_detect_sdg_targets.R
   # targets_validation,   # 05_validation/05_validation_targets.R
   # targets_export,       # 06_export/06_export_targets.R
   # targets_analysis      # 07_analysis/07_analysis_targets.R
+  targets_logging       # 99_analysis/99_logging_targets.R
 )
