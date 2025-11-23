@@ -239,7 +239,6 @@ build_guides_raw <- function(import_dir) {
     file.path(import_dir, "docnet-iframe.csv"),
     delim = ";",
     escape_double = FALSE,
-    locale = readr::locale(encoding = "WINDOWS-1252"),
     trim_ws = TRUE
   )[ , c("web-scraper-start-url", "iframes")]
   

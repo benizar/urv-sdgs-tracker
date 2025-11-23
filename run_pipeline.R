@@ -101,11 +101,12 @@ get_pipeline_log_path <- function() {
 #                 (NULL if the full pipeline was run)
 #   log_path    : path to the CSV log file
 log_pipeline_run <- function(mode, targets_run, log_path = get_pipeline_log_path()) {
+  # tar_meta() returns metadata for all targets, including
+  # runtime information for the last successful run.
   meta <- targets::tar_meta(
     fields = c(
       name,
       started,
-      finished,
       time,
       seconds,
       bytes,
@@ -121,20 +122,60 @@ log_pipeline_run <- function(mode, targets_run, log_path = get_pipeline_log_path
     return(invisible(NULL))
   }
   
-  requested <- if (is.null(targets_run)) "all" else paste(targets_run, collapse = ", ")
+  requested <- if (is.null(targets_run)) {
+    "all"
+  } else {
+    paste(targets_run, collapse = ", ")
+  }
   
+  # Add run-level metadata
   meta$run_timestamp         <- Sys.time()
   meta$run_mode              <- mode
   meta$run_targets_requested <- requested
   
+  # Make sure the directory exists
   dir.create(dirname(log_path), recursive = TRUE, showWarnings = FALSE)
   
+  # Always try to keep a consistent schema in the log file.
   if (!file.exists(log_path)) {
+    # Fresh log: just write the current meta table
     readr::write_csv(meta, log_path)
     message("log_pipeline_run(): created log file at: ", log_path)
   } else {
-    readr::write_csv(meta, log_path, append = TRUE)
-    message("log_pipeline_run(): appended metadata to log: ", log_path)
+    # Existing log: check if it is compatible
+    existing <- tryCatch(
+      readr::read_csv(log_path, show_col_types = FALSE),
+      error = function(e) NULL
+    )
+    
+    # Minimal set of columns we really need in the log
+    required_cols <- c(
+      "name",
+      "started",
+      "seconds",
+      "run_timestamp",
+      "run_mode",
+      "run_targets_requested"
+    )
+    
+    if (!is.null(existing) && identical(names(existing), names(meta))) {
+      # Same schema: append rows and rewrite the file
+      combined <- rbind(existing, meta)
+      readr::write_csv(combined, log_path)
+      message(
+        "log_pipeline_run(): appended metadata to existing log: ",
+        log_path
+      )
+    } else {
+      # Incompatible schema (old or corrupted log):
+      # start a fresh log with the current meta only.
+      warning(
+        "log_pipeline_run(): existing log file has an incompatible schema. ",
+        "It will be replaced by a new log."
+      )
+      readr::write_csv(meta, log_path)
+      message("log_pipeline_run(): created new log file at: ", log_path)
+    }
   }
   
   invisible(NULL)

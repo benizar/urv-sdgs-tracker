@@ -24,12 +24,53 @@
 
 
 # -------------------------------------------------------------------
+# Helper: strip HTML tags and invisible / control characters
+# -------------------------------------------------------------------
+
+clean_html_and_invisible <- function(x) {
+  # Work safely with empty vectors and non-character columns
+  if (is.null(x)) {
+    return(x)
+  }
+  
+  x <- as.character(x)
+  
+  x %>%
+    # Remove zero-width and BOM characters
+    stringr::str_replace_all("[\u200B-\u200D\uFEFF]", "") %>%
+    
+    # Normalise non-breaking spaces to regular spaces
+    stringr::str_replace_all("\u00A0", " ") %>%          # literal NBSP
+    stringr::str_replace_all("&nbsp;", " ") %>%
+    
+    # Decode a few common HTML entities (best-effort, not exhaustive)
+    stringr::str_replace_all("&amp;", "&") %>%
+    stringr::str_replace_all("&lt;", "<") %>%
+    stringr::str_replace_all("&gt;", ">") %>%
+    stringr::str_replace_all("&quot;", "\"") %>%
+    stringr::str_replace_all("&apos;", "'") %>%
+    
+    # Remove common HTML tags (p, br, b, i, strong, em, lists, etc.)
+    # Case-insensitive; replace with a space to avoid accidental concatenation.
+    stringr::str_replace_all("(?i)</?(p|br|ul|ol|li|b|strong|i|em)[^>]*>", " ") %>%
+    
+    # Fallback: remove any remaining generic HTML tags
+    stringr::str_replace_all("<[^>]+>", " ") %>%
+    
+    # Remove control characters except tab/newline (keep structure if any)
+    # 0x09 = tab, 0x0A = LF, 0x0D = CR (CR will later be normalised in clean_basic_text)
+    stringr::str_replace_all("[\\x00-\\x08\\x0B-\\x0C\\x0E-\\x1F\\x7F]", " ")
+}
+
+
+# -------------------------------------------------------------------
 # Basic text cleaning helpers
 # -------------------------------------------------------------------
 
 # Light, generic cleaning for long text fields.
 #
 # Goals:
+#   - Remove HTML tags and invisible characters.
 #   - Normalise line breaks.
 #   - Remove common bullet prefixes and trivial leading noise.
 #   - Trim and squash whitespace.
@@ -39,6 +80,7 @@
 #   - Remove punctuation aggressively.
 clean_basic_text <- function(x) {
   x %>%
+    clean_html_and_invisible() %>%
     # Normalise line breaks to "\n"
     stringr::str_replace_all("\r\n", "\n") %>%
     stringr::str_replace_all("\r", "\n") %>%
@@ -55,6 +97,7 @@ clean_basic_text <- function(x) {
 # Normalise course names.
 #
 # Goals:
+#   - Strip HTML / invisible noise.
 #   - Replace roman numerals at the end of the name with arabic digits,
 #     using the same logic as the original script, including the special
 #     case for "el VI" / "del VI".
@@ -71,7 +114,8 @@ clean_course_name <- function(x) {
     " I$"    = " 1"
   )
   
-  name <- x
+  # First remove HTML / invisible junk, then apply roman numeral logic
+  name <- clean_html_and_invisible(x)
   
   # Replace all roman numerals except VI
   for (pattern in names(replacements)) {
@@ -97,6 +141,7 @@ clean_course_name <- function(x) {
 # Cleaning rules specific to references / bibliography.
 #
 # Goals:
+#   - Strip HTML / invisible junk.
 #   - Remove technical labels and prefixes from CRAI / URV catalogues
 #     (for example: "(llibre)", "(revista)", "(bases de dades)", "accés al crai").
 #   - Remove leading separators and bullet characters.
@@ -118,7 +163,7 @@ clean_references <- function(x) {
     "^/\\s*", "^:\\s*", "^,\\s*", "^•\\s*", "^-\\s*", "^\\.\\s*"
   )
   
-  out <- x
+  out <- clean_html_and_invisible(x)
   
   for (p in patterns) {
     out <- stringr::str_replace_all(out, p, "")

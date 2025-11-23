@@ -7,7 +7,7 @@
 #   - call the generic translate_column() helper from src/common
 #     to produce per-column CSV files
 #   - read those CSVs back and attach *_en columns to guides_clean
-
+#
 # NOTE:
 # - check_translation_service() and rtrim_slash() are defined in
 #   src/common/translation_helpers.R and loaded from _targets.R.
@@ -35,13 +35,22 @@ run_column_translations <- function(guides_clean, translate_cfg) {
   source_lang <- translate_cfg$source_lang %||% "auto"
   target_lang <- translate_cfg$target_lang %||% "en"
   max_cores   <- translate_cfg$max_cores %||% parallel::detectCores()
-  columns_cfg <- translate_cfg$columns %||% c(
-    "course_name",
-    "description",
-    "contents",
-    "competences_learning_results",
-    "references"
-  )
+  batch_size  <- translate_cfg$batch_size %||% 100
+  
+  # Columns to translate:
+  #   - if translate_cfg$columns is set, use that list
+  #   - otherwise, fall back to the original default columns
+  if (!is.null(translate_cfg$columns)) {
+    columns_cfg <- translate_cfg$columns
+  } else {
+    columns_cfg <- c(
+      "course_name_clean",
+      "description_clean",
+      "contents_clean",
+      "competences_learning_results_clean",
+      "references_clean"
+    )
+  }
   
   cols_to_translate <- intersect(columns_cfg, names(guides_clean))
   
@@ -79,19 +88,34 @@ run_column_translations <- function(guides_clean, translate_cfg) {
       file.remove(out_file)
     }
     
-    message("Translating column '", col, "' into ", target_lang,
-            " using service = ", service)
+    # Optional per-column context (prefix/suffix) from config
+    ctx_prefix <- NULL
+    ctx_suffix <- NULL
+    if (!is.null(translate_cfg$column_contexts) &&
+        !is.null(translate_cfg$column_contexts[[col]])) {
+      ctx <- translate_cfg$column_contexts[[col]]
+      ctx_prefix <- ctx$prefix %||% NULL
+      ctx_suffix <- ctx$suffix %||% NULL
+    }
+    
+    message(
+      "Translating column '", col, "' into ", target_lang,
+      " using service = ", service,
+      if (!is.null(ctx_prefix) || !is.null(ctx_suffix)) " with context." else ""
+    )
     
     translate_column(
-      df          = guides_clean,
-      column      = col,
-      source_lang = source_lang,
-      target_lang = target_lang,
-      file_path   = out_file,
-      max_cores   = max_cores,
-      id_column   = "document_number",
-      service     = service
-      # context can be added via translate_cfg later if needed.
+      df             = guides_clean,
+      column         = col,
+      source_lang    = source_lang,
+      target_lang    = target_lang,
+      file_path      = out_file,
+      batch_size     = batch_size,
+      max_cores      = max_cores,
+      id_column      = "document_number",
+      service        = service,
+      context_prefix = ctx_prefix,
+      context_suffix = ctx_suffix
     )
     
     if (!file.exists(out_file)) {
@@ -132,7 +156,7 @@ attach_translations_to_guides <- function(guides_clean, translation_dfs) {
   }
   
   for (col in names(translation_dfs)) {
-    tr_df  <- translation_dfs[[col]]
+    tr_df   <- translation_dfs[[col]]
     new_col <- paste0(col, "_en")
     
     tr_small <- tr_df %>%
@@ -150,7 +174,7 @@ attach_translations_to_guides <- function(guides_clean, translation_dfs) {
 }
 
 # -------------------------------------------------------------------
-# Public entry point for the translation phase
+# Public entry point for the translation phase (all columns at once)
 # -------------------------------------------------------------------
 
 translate_guides_table <- function(guides_clean, translate_cfg) {
@@ -162,10 +186,39 @@ translate_guides_table <- function(guides_clean, translate_cfg) {
     return(guides_clean)
   }
   
-  # Healthcheck is now in src/common/translation_helpers.R
+  # Healthcheck is implemented in the common helper
   check_translation_service(translate_cfg)
   
-  translation_dfs   <- run_column_translations(guides_clean, translate_cfg)
+  # Translate the selected fields (one CSV per column)
+  translation_dfs <- run_column_translations(guides_clean, translate_cfg)
+  
+  # Attach *_en columns to the original guides_clean table
+  guides_translated <- attach_translations_to_guides(guides_clean, translation_dfs)
+  
+  guides_translated
+}
+
+# -------------------------------------------------------------------
+# Helper: translate a single column (used as a dynamic target)
+# -------------------------------------------------------------------
+
+translate_guides_column <- function(guides_clean, translate_cfg, column_name) {
+  if (!isTRUE(translate_cfg$enabled %||% TRUE)) {
+    message(
+      "Translation disabled in config (translate.enabled = FALSE). ",
+      "Returning guides_clean unchanged."
+    )
+    return(guides_clean)
+  }
+  
+  # Healthcheck is implemented in the common helper
+  check_translation_service(translate_cfg)
+  
+  # Local copy of the config restricted to a single column
+  cfg_single <- translate_cfg
+  cfg_single$columns <- column_name
+  
+  translation_dfs <- run_column_translations(guides_clean, cfg_single)
   guides_translated <- attach_translations_to_guides(guides_clean, translation_dfs)
   
   guides_translated

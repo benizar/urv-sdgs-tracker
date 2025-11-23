@@ -24,6 +24,7 @@ services:
     environment:
       - LT_LOAD_ONLY=en,ca,es  # Load only English & Catalan models
       - LT_NO_UPDATE=true   # Prevent automatic updates
+      - LT_THREADS=6
       - ARGOS_INTER_THREADS=4  # Process 4 translations at the same time
       - ARGOS_INTRA_THREADS=4  # Each translation uses 2 CPU threads
     restart: unless-stopped

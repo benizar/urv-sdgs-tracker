@@ -85,18 +85,15 @@ check_translation_service <- function(translate_cfg) {
   }
 }
 
-# Return the base URL for the selected translation service.
-#
+# -------------------------------------------------------------------
+# Base URL helper
+# -------------------------------------------------------------------
 # The default values assume a Docker Compose setup where services are
 # named "libretranslate" and "apertium" on the default project network.
 #
 # Users can override these defaults via environment variables:
 #   - LIBRETRANSLATE_URL
 #   - APERTIUM_URL
-#
-# Examples:
-#   get_translation_base_url("libretranslate")
-#   get_translation_base_url("apertium")
 get_translation_base_url <- function(service = c("libretranslate", "apertium")) {
   service <- match.arg(service)
   
@@ -116,7 +113,9 @@ get_translation_base_url <- function(service = c("libretranslate", "apertium")) 
   sub("/+$", "", base)
 }
 
-#' Translate a specific column in a data frame using LibreTranslate
+# -------------------------------------------------------------------
+# Translate a specific column in a data frame
+# -------------------------------------------------------------------
 translate_column <- function(
     df,
     column,
@@ -124,8 +123,10 @@ translate_column <- function(
     target_lang = "en",
     file_path = "output.csv",
     batch_size = 100,
-    max_cores = 4,   # kept for API compatibility, but not used internally
-    context = NULL,
+    max_cores = 4,      # kept for API compatibility, but not used internally
+    context = NULL,     # legacy: treated as a prefix
+    context_prefix = NULL,
+    context_suffix = NULL,
     id_column = NULL,
     service = "libretranslate"
 ) {
@@ -141,24 +142,16 @@ translate_column <- function(
   if (!file.exists(file_path)) {
     data.table::fwrite(
       data.frame(
-        id               = character(),
-        original         = character(),
+        id                = character(),
+        original          = character(),
         detected_language = character(),
-        confidence       = numeric(),
-        translated_text  = character(),
-        stringsAsFactors = FALSE
+        confidence        = numeric(),
+        translated_text   = character(),
+        stringsAsFactors  = FALSE
       ),
       file   = file_path,
       append = FALSE
     )
-  }
-  
-  # Normalise text (optional heuristic).
-  df[[column]] <- tolower(df[[column]])
-  
-  # Optionally prepend context for short texts.
-  if (!is.null(context)) {
-    df[[column]] <- paste0(context, df[[column]])
   }
   
   # Stable ID column.
@@ -204,20 +197,34 @@ translate_column <- function(
         httr::accept_json()
       )
     }, error = function(e) {
-      return(list(detectedLanguage = NA_character_, confidence = NA_real_))
+      message("LibreTranslate detect error: ", e$message)
+      NULL
     })
     
-    if (!is.null(response) && httr::status_code(response) == 200L) {
-      json <- jsonlite::fromJSON(
-        httr::content(response, "text", encoding = "UTF-8")
-      )
-      return(list(
-        detectedLanguage = json$language[1],
-        confidence       = json$confidence[1]
-      ))
+    if (is.null(response) ||
+        !inherits(response, "response") ||
+        httr::status_code(response) != 200L) {
+      message("LibreTranslate detect: invalid HTTP response")
+      return(list(detectedLanguage = NA_character_, confidence = NA_real_))
     }
     
-    list(detectedLanguage = NA_character_, confidence = NA_real_)
+    json <- tryCatch({
+      jsonlite::fromJSON(
+        httr::content(response, "text", encoding = "UTF-8")
+      )
+    }, error = function(e) {
+      message("LibreTranslate detect: JSON parse error: ", e$message)
+      NULL
+    })
+    
+    if (is.null(json) || is.null(json$language) || !length(json$language)) {
+      return(list(detectedLanguage = NA_character_, confidence = NA_real_))
+    }
+    
+    list(
+      detectedLanguage = json$language[1],
+      confidence       = json$confidence[1]
+    )
   }
   
   # ------------------------------------------------------------------
@@ -231,7 +238,7 @@ translate_column <- function(
       httr::GET(url, query = list(q = text))
     }, error = function(e) {
       message("Apertium detect error: ", e$message)
-      return(list(detectedLanguage = NA_character_, confidence = NA_real_))
+      NULL
     })
     
     if (is.null(response) ||
@@ -247,10 +254,10 @@ translate_column <- function(
       )
     }, error = function(e) {
       message("Apertium detect: JSON parse error: ", e$message)
-      return(list(detectedLanguage = NA_character_, confidence = NA_real_))
+      NULL
     })
     
-    if (length(content) == 0L || !is.list(content)) {
+    if (is.null(content) || length(content) == 0L || !is.list(content)) {
       message("Apertium detect: empty or malformed response")
       return(list(detectedLanguage = NA_character_, confidence = NA_real_))
     }
@@ -301,17 +308,31 @@ translate_column <- function(
         httr::accept_json()
       )
     }, error = function(e) {
-      return("Error in translation request")
+      message("LibreTranslate translation error: ", e$message)
+      NULL
     })
     
-    if (!is.null(response) && httr::status_code(response) == 200L) {
-      json <- jsonlite::fromJSON(
-        httr::content(response, "text", encoding = "UTF-8")
-      )
-      return(json$translatedText)
+    if (is.null(response) ||
+        !inherits(response, "response") ||
+        httr::status_code(response) != 200L) {
+      message("LibreTranslate translation: invalid HTTP response")
+      return("Translation Error")
     }
     
-    "Error in translation request"
+    json <- tryCatch({
+      jsonlite::fromJSON(
+        httr::content(response, "text", encoding = "UTF-8")
+      )
+    }, error = function(e) {
+      message("LibreTranslate translation: JSON parse error: ", e$message)
+      NULL
+    })
+    
+    if (is.null(json) || is.null(json$translatedText)) {
+      return("Translation Error")
+    }
+    
+    json$translatedText
   }
   
   # ------------------------------------------------------------------
@@ -333,17 +354,31 @@ translate_column <- function(
         )
       )
     }, error = function(e) {
-      return(NULL)
+      message("Apertium translation error: ", e$message)
+      NULL
     })
     
-    if (!is.null(response) && httr::status_code(response) == 200L) {
-      json <- jsonlite::fromJSON(
-        httr::content(response, "text", encoding = "UTF-8")
-      )
-      return(json$responseData$translatedText)
+    if (is.null(response) ||
+        !inherits(response, "response") ||
+        httr::status_code(response) != 200L) {
+      message("Apertium translation: invalid HTTP response")
+      return("Translation Error")
     }
     
-    "Translation Error"
+    json <- tryCatch({
+      jsonlite::fromJSON(
+        httr::content(response, "text", encoding = "UTF-8")
+      )
+    }, error = function(e) {
+      message("Apertium translation: JSON parse error: ", e$message)
+      NULL
+    })
+    
+    if (is.null(json) || is.null(json$responseData$translatedText)) {
+      return("Translation Error")
+    }
+    
+    json$responseData$translatedText
   }
   
   # ------------------------------------------------------------------
@@ -360,12 +395,82 @@ translate_column <- function(
   }
   
   # ------------------------------------------------------------------
+  # Helper: translate text sentence by sentence (second attempt)
+  # ------------------------------------------------------------------
+  translate_by_sentences <- function(text, source_lang, target_lang, service) {
+    if (is.null(text) || is.na(text) || !nzchar(text)) {
+      return("Translation Error")
+    }
+    
+    parts <- unlist(strsplit(text, "(?<=[.!?])\\s+", perl = TRUE))
+    parts <- trimws(parts)
+    parts <- parts[nzchar(parts)]
+    
+    if (!length(parts)) {
+      return("Translation Error")
+    }
+    
+    translated_parts <- vapply(
+      parts,
+      FUN.VALUE = character(1),
+      FUN = function(p) {
+        translate_text(p, source_lang, target_lang, service)
+      }
+    )
+    
+    paste(translated_parts, collapse = " ")
+  }
+  
+  # ------------------------------------------------------------------
+  # Suspicious-output detection (for retries)
+  # ------------------------------------------------------------------
+  is_suspicious_translation <- function(txt) {
+    if (is.null(txt) || is.na(txt) || !is.character(txt) || !nzchar(txt)) {
+      return(FALSE)
+    }
+    
+    # 1) very repetitive tokens with spaces
+    tokens <- strsplit(txt, "\\s+")[[1]]
+    if (length(tokens)) {
+      tab <- table(tokens)
+      if (length(tab) && max(tab) > 50L) {
+        return(TRUE)
+      }
+    }
+    
+    # 2) very long string with almost no whitespace / repeated pattern
+    txt_nospace <- gsub("\\s+", "", txt)
+    n_chars     <- nchar(txt_nospace, allowNA = TRUE, keepNA = FALSE)
+    
+    if (!is.na(n_chars) && n_chars > 200L) {
+      # repeated pattern like "mainstremainstremainstrem..."
+      if (grepl("^(.{3,30})\\1{10,}$", txt_nospace, perl = TRUE)) {
+        return(TRUE)
+      }
+      
+      # fallback: extremely low whitespace ratio
+      m <- gregexpr("\\s", txt)[[1]]
+      n_spaces <- if (identical(m, -1L)) 0L else length(m)
+      if (n_spaces == 0L || (n_spaces / nchar(txt)) < 0.005) {
+        return(TRUE)
+      }
+    }
+    
+    FALSE
+  }
+  
+  # ------------------------------------------------------------------
   # Batch processing (sequential)
   # ------------------------------------------------------------------
   n <- nrow(df)
   if (n == 0L) {
     message("translate_column(): input data frame has 0 rows, nothing to do.")
     return(invisible(NULL))
+  }
+  
+  # context (legacy) is treated as a prefix if provided
+  if (!is.null(context) && is.null(context_prefix)) {
+    context_prefix <- context
   }
   
   batch_ids <- split(seq_len(n), ceiling(seq_len(n) / batch_size))
@@ -376,6 +481,10 @@ translate_column <- function(
     " rows in ", n_batches,
     " batches using service = ", service, "."
   )
+  
+  # retry parameters for suspicious outputs
+  max_retry_suspicious <- 2L      # total attempts: 1 full text + 1 by sentences
+  retry_sleep_sec      <- 5
   
   batch_counter <- 0L
   
@@ -389,44 +498,84 @@ translate_column <- function(
       text   <- batch[[column]][i]
       row_id <- batch[[id_column]][i]
       
-      if (is.null(text) || is.na(text) || text == "" || trimws(text) == "") {
+      # Skip empty / missing text
+      if (is.null(text) || is.na(text) || trimws(text) == "") {
         return(data.frame(
-          id               = row_id,
-          original         = NA_character_,
+          id                = row_id,
+          original          = NA_character_,
           detected_language = NA_character_,
-          confidence       = NA_real_,
-          translated_text  = NA_character_,
-          stringsAsFactors = FALSE
+          confidence        = NA_real_,
+          translated_text   = NA_character_,
+          stringsAsFactors  = FALSE
         ))
       }
       
-      detected <- detect_language(text, service)
+      # Apply optional prefix/suffix only to the text sent to the service
+      text_for_translate <- text
+      if (!is.null(context_prefix) || !is.null(context_suffix)) {
+        text_for_translate <- paste0(
+          context_prefix %||% "",
+          text_for_translate,
+          context_suffix %||% ""
+        )
+      }
+      
+      detected <- detect_language(text_for_translate, service)
       final_source_lang <- if (source_lang == "auto") {
         detected$detectedLanguage
       } else {
         source_lang
       }
       
-      if (service == "apertium") {
-        final_source_lang <- convert_lang_code(final_source_lang, service)
-      }
-      
-      translated_text <- translate_text(text, final_source_lang, target_lang, service)
-      
-      # If context was used, strip it after translation.
-      if (!is.null(context)) {
-        pattern        <- "^\\s*[^:]+:\\s*"
-        text           <- sub(pattern, "", text)
-        translated_text <- sub(pattern, "", translated_text)
+      # If detection fails and source_lang is auto, flag as error (no retry)
+      if (is.null(final_source_lang) ||
+          is.na(final_source_lang)   ||
+          final_source_lang == "") {
+        translated_text <- "Translation Error"
+      } else {
+        # First attempt: full text
+        translated_text <- translate_text(
+          text_for_translate,
+          final_source_lang,
+          target_lang,
+          service
+        )
+        
+        if (is_suspicious_translation(translated_text)) {
+          message(
+            "Suspicious translation for id = ", row_id,
+            " (attempt 1), retrying by sentences in ",
+            retry_sleep_sec, " seconds..."
+          )
+          Sys.sleep(retry_sleep_sec)
+          
+          # Second attempt: sentence-wise translation
+          translated_text_sent <- translate_by_sentences(
+            text_for_translate,
+            final_source_lang,
+            target_lang,
+            service
+          )
+          
+          if (is_suspicious_translation(translated_text_sent)) {
+            message(
+              "Giving up after ", max_retry_suspicious,
+              " suspicious translations for id = ", row_id
+            )
+            translated_text <- "Translation Error"
+          } else {
+            translated_text <- translated_text_sent
+          }
+        }
       }
       
       data.frame(
-        id               = row_id,
-        original         = text,
+        id                = row_id,
+        original          = text,  # original text without prefix/suffix
         detected_language = detected$detectedLanguage,
-        confidence       = detected$confidence,
-        translated_text  = translated_text,
-        stringsAsFactors = FALSE
+        confidence        = detected$confidence,
+        translated_text   = translated_text,
+        stringsAsFactors  = FALSE
       )
     })
     
@@ -434,8 +583,8 @@ translate_column <- function(
     
     data.table::fwrite(
       results_df,
-      file     = file_path,
-      append   = TRUE,
+      file      = file_path,
+      append    = TRUE,
       col.names = !file.exists(file_path) || (file.info(file_path)$size == 0L)
     )
   }
@@ -443,6 +592,3 @@ translate_column <- function(
   message("translate_column(): translation process completed.")
   invisible(NULL)
 }
-
-
-
