@@ -11,13 +11,6 @@
 #       * Casts credits / year to numeric types.
 #   - Stores cleaned versions in new *_clean columns (non-destructive).
 #
-# FUTURE BEHAVIOUR:
-#   - Additional domain-specific cleaning rules can be added here
-#     (for example, harmonising abbreviations, expanding URV-specific acronyms).
-#   - This module can be extended with quality flags, such as:
-#       * indicators for suspiciously short descriptions,
-#       * missing key sections per course.
-#
 # IMPORTANT:
 #   - Original columns (course_name, description, contents, etc.) are preserved.
 #   - Cleaned columns are intended as the main input for translation and SDG detection.
@@ -58,7 +51,7 @@ clean_html_and_invisible <- function(x) {
     stringr::str_replace_all("<[^>]+>", " ") %>%
     
     # Remove control characters except tab/newline (keep structure if any)
-    # 0x09 = tab, 0x0A = LF, 0x0D = CR (CR will later be normalised in clean_basic_text)
+    # 0x09 = tab, 0x0A = LF, 0x0D = CR
     stringr::str_replace_all("[\\x00-\\x08\\x0B-\\x0C\\x0E-\\x1F\\x7F]", " ")
 }
 
@@ -68,16 +61,6 @@ clean_html_and_invisible <- function(x) {
 # -------------------------------------------------------------------
 
 # Light, generic cleaning for long text fields.
-#
-# Goals:
-#   - Remove HTML tags and invisible characters.
-#   - Normalise line breaks.
-#   - Remove common bullet prefixes and trivial leading noise.
-#   - Trim and squash whitespace.
-#
-# It intentionally does NOT:
-#   - Lowercase everything.
-#   - Remove punctuation aggressively.
 clean_basic_text <- function(x) {
   x %>%
     clean_html_and_invisible() %>%
@@ -93,16 +76,7 @@ clean_basic_text <- function(x) {
     stringr::str_squish()
 }
 
-
 # Normalise course names.
-#
-# Goals:
-#   - Strip HTML / invisible noise.
-#   - Replace roman numerals at the end of the name with arabic digits,
-#     using the same logic as the original script, including the special
-#     case for "el VI" / "del VI".
-#   - Replace straight apostrophes with your preferred curly form.
-#   - Trim and squash spaces.
 clean_course_name <- function(x) {
   replacements <- c(
     " VIII$" = " 8",
@@ -114,10 +88,8 @@ clean_course_name <- function(x) {
     " I$"    = " 1"
   )
   
-  # First remove HTML / invisible junk, then apply roman numeral logic
   name <- clean_html_and_invisible(x)
   
-  # Replace all roman numerals except VI
   for (pattern in names(replacements)) {
     name <- stringr::str_replace(name, pattern, replacements[[pattern]])
   }
@@ -131,35 +103,22 @@ clean_course_name <- function(x) {
   )
   
   name %>%
-    # Harmonise apostrophes
     stringr::str_replace_all("'", "’") %>%
-    # Normalise spaces
     stringr::str_squish()
 }
 
-
 # Cleaning rules specific to references / bibliography.
-#
-# Goals:
-#   - Strip HTML / invisible junk.
-#   - Remove technical labels and prefixes from CRAI / URV catalogues
-#     (for example: "(llibre)", "(revista)", "(bases de dades)", "accés al crai").
-#   - Remove leading separators and bullet characters.
-#   - Trim and normalise whitespace.
-#
-# It intentionally does NOT:
-#   - Force lowercasing (we keep the original case as much as possible).
 clean_references <- function(x) {
   patterns <- c(
-    "accés al crai", "no disponible a la urv", ", més info", "més info",
+    "Accés al CRAI", "No disponible a la URV", ", Més info",
     "diversos,", "diversos\\.",
-    "\\(llibre\\)\\s*[,-/]*\\s*",
-    "\\(revista\\)\\s*[,-/]*\\s*",
-    "\\(altres\\)\\s*[,-/]*\\s*",
-    "\\(lloc web\\)\\s*[,-/]*\\s*",
-    "\\(bases de dades\\)\\s*[,-/]*\\s*",
-    "\\(cap[ií]tol llibre\\)\\s*[,-/]*\\s*",
-    "\\(audios\\)\\s*/\\s*",
+    "\\(Llibre\\)\\s*[,-/]*\\s*",
+    "\\(Revista\\)\\s*[,-/]*\\s*",
+    "\\(Altres\\)\\s*[,-/]*\\s*",
+    "\\(Lloc web\\)\\s*[,-/]*\\s*",
+    "\\(Bases de dades\\)\\s*[,-/]*\\s*",
+    "\\(Cap[ií]tol llibre\\)\\s*[,-/]*\\s*",
+    "\\(Audios\\)\\s*/\\s*",
     "^/\\s*", "^:\\s*", "^,\\s*", "^•\\s*", "^-\\s*", "^\\.\\s*"
   )
   
@@ -174,33 +133,140 @@ clean_references <- function(x) {
     stringr::str_squish()
 }
 
+# -------------------------------------------------------------------
+# Competences / learning results: hierarchical + code cleanup
+# -------------------------------------------------------------------
+
+# Detect header tokens that appear in some scraped outputs, e.g.:
+# "Tipus A Codi Resultats d'aprenentatge"
+is_comp_header_item <- function(x) {
+  x <- as.character(x)
+  x[is.na(x)] <- ""
+  xi <- stringr::str_squish(x)
+  
+  stringr::str_detect(
+    stringr::str_to_lower(xi),
+    "^tipus\\s+[a-z]\\s+codi\\s+resultats\\s+d['’]?aprenentatge$"
+  ) ||
+    stringr::str_detect(stringr::str_to_lower(xi), "^tipus\\s+[a-z]\\s+codi$") ||
+    stringr::str_detect(stringr::str_to_lower(xi), "^codi\\s+resultats\\s+d['’]?aprenentatge$")
+}
+
+# Remove leading code prefixes, keeping only the descriptive text.
+strip_comp_code_prefix <- function(item) {
+  item <- stringr::str_squish(item)
+  if (is.na(item) || !nzchar(item)) return(NA_character_)
+  if (is_comp_header_item(item)) return(NA_character_)
+  
+  out <- stringr::str_replace(
+    item,
+    "^[A-Za-z]{1,8}\\d{1,4}(?:\\.\\d+){0,3}\\s*[-–—]\\s*",
+    ""
+  )
+  
+  out <- stringr::str_squish(out)
+  if (!nzchar(out)) NA_character_ else out
+}
+
+# Expand one scraped item into {parent, child} when appropriate.
+# This guarantees that when a line is "PARENT - parent text - CHILD-child text",
+# we keep ONE instance of the parent and ONE instance of the child.
+parse_comp_item <- function(item) {
+  item <- stringr::str_squish(item)
+  if (is.na(item) || !nzchar(item)) return(character(0))
+  if (is_comp_header_item(item)) return(character(0))
+  
+  # Split hierarchy boundaries only on dashes with SPACES around them.
+  # This preserves "SE11.1-Aplicar" intact.
+  parts <- stringr::str_split(item, "\\s+[-–—]\\s+")[[1]]
+  parts <- stringr::str_squish(parts)
+  parts <- parts[nzchar(parts)]
+  
+  is_parent_code <- function(z) stringr::str_detect(z, "^[A-Za-z]{1,8}\\d{1,4}$")
+  
+  # Parent-child (3+ parts): "K2 - Parent text - K2.4-Child text"
+  if (length(parts) >= 3 && is_parent_code(parts[1])) {
+    parent <- paste0(parts[1], " - ", parts[2])
+    
+    child_raw <- paste(parts[3:length(parts)], collapse = " - ")
+    child_raw <- stringr::str_squish(child_raw)
+    
+    # Normalise the child to "CODE-text" (no spaces around the internal dash)
+    m <- stringr::str_match(
+      child_raw,
+      "^([A-Za-z]{1,8}\\d{1,4}(?:\\.\\d+)+)\\s*[-–—]\\s*(.+)$"
+    )
+    if (!is.na(m[1, 1])) {
+      child <- paste0(m[1, 2], "-", stringr::str_squish(m[1, 3]))
+      return(c(parent, child))
+    }
+    
+    return(parent)
+  }
+  
+  # Parent-only (2 parts): "K2 - Parent text"
+  if (length(parts) == 2 && is_parent_code(parts[1])) {
+    return(paste0(parts[1], " - ", parts[2]))
+  }
+  
+  # Child-only: "K2.4-Child text"
+  m2 <- stringr::str_match(
+    item,
+    "^([A-Za-z]{1,8}\\d{1,4}(?:\\.\\d+)+)\\s*[-–—]\\s*(.+)$"
+  )
+  if (!is.na(m2[1, 1])) {
+    return(paste0(m2[1, 2], "-", stringr::str_squish(m2[1, 3])))
+  }
+  
+  # Fallback: keep as-is
+  item
+}
+
+# Vectorised cleaner:
+#   1) clean_basic_text() for whitespace/HTML
+#   2) split into ";" items
+#   3) expand hierarchical items into parent + child (so parent isn't lost)
+#   4) de-duplicate while keeping first-seen order
+#   5) drop headers
+#   6) strip code prefixes
+clean_competences_learning_results <- function(x) {
+  x <- clean_basic_text(x)
+  
+  vapply(x, function(xi) {
+    if (is.na(xi) || !nzchar(stringr::str_squish(xi))) return(NA_character_)
+    
+    items <- stringr::str_split(xi, "\\s*;\\s*")[[1]]
+    items <- items[!is.na(items)]
+    items <- stringr::str_squish(items)
+    items <- items[nzchar(items)]
+    if (!length(items)) return(NA_character_)
+    
+    expanded <- unlist(lapply(items, parse_comp_item), use.names = FALSE)
+    expanded <- expanded[!is.na(expanded)]
+    expanded <- stringr::str_squish(expanded)
+    expanded <- expanded[nzchar(expanded)]
+    if (!length(expanded)) return(NA_character_)
+    
+    # De-dupe while preserving first-seen order (per course)
+    expanded <- expanded[!duplicated(expanded)]
+    
+    cleaned <- vapply(expanded, strip_comp_code_prefix, character(1))
+    cleaned <- cleaned[!is.na(cleaned)]
+    cleaned <- stringr::str_squish(cleaned)
+    cleaned <- cleaned[nzchar(cleaned)]
+    
+    # De-dupe again after code stripping
+    cleaned <- cleaned[!duplicated(cleaned)]
+    
+    if (!length(cleaned)) return(NA_character_)
+    paste(cleaned, collapse = " ; ")
+  }, character(1))
+}
 
 # -------------------------------------------------------------------
 # Main cleaning function operating on guides_index
 # -------------------------------------------------------------------
 
-# Clean the per-course index returned by 01_import (guides_index).
-#
-# INPUT:
-#   - guides_index: data frame with one row per course_url, containing:
-#       * structural metadata (faculty, degree, course details),
-#       * concatenated long text fields
-#         (description, contents, competences_learning_results, references),
-#       * teaching staff information.
-#
-# OUTPUT:
-#   - guides_clean: same rows and columns as guides_index, plus:
-#       * course_name_clean
-#       * description_clean
-#       * contents_clean
-#       * competences_learning_results_clean
-#       * references_clean
-#     and normalised numeric types for credits / year.
-#
-# NOTES:
-#   - Original columns are preserved; nothing is overwritten.
-#   - Cleaned columns are meant to be used as input for translation
-#     and SDG classification.
 clean_guides_index <- function(guides_index) {
   guides_index %>%
     dplyr::mutate(
@@ -210,8 +276,10 @@ clean_guides_index <- function(guides_index) {
       # Light cleaning for long text fields (non-destructive)
       description_clean = clean_basic_text(description),
       contents_clean    = clean_basic_text(contents),
+      
+      # Competences / learning results (specialised)
       competences_learning_results_clean =
-        clean_basic_text(competences_learning_results),
+        clean_competences_learning_results(competences_learning_results),
       
       # Bibliography-specific cleaning
       references_clean  = clean_references(references),

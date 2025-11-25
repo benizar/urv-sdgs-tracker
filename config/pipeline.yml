@@ -77,6 +77,12 @@ import:
 # -------------------------------------------------------------------
 translate:
   enabled: true
+  
+  # How to run the translation phase:
+  # - "auto": call the translation service and (re)create the CSVs.
+  # - "reviewer": do NOT call the service, only read existing CSVs
+  #               (useful after manual edits of the CSV files).
+  mode: "auto"
 
   # Which backend to use: "libretranslate" or "apertium".
   service: "libretranslate"
@@ -139,11 +145,6 @@ translate:
 sdg_detection:
   # Master switch for the SDG detection phase.
   enabled: true
-  
-  # How to obtain the translated text for SDG detection:
-  # - "object": use guides_translated (in-memory table produced by translate phase)
-  # - "csv":    read translation CSVs from disk (e.g. sandbox/translations)
-  input_mode: "object"
 
   # Optional override for the directory where translation CSVs are stored.
   # If NULL / missing, the code will fall back to translate$output_dir.
@@ -157,6 +158,11 @@ sdg_detection:
   # List of SDG systems to run when method = "systems".
   # These are passed to text2sdg::detect_sdg_systems().
   systems:
+    - "Aurora"
+    - "Elsevier"
+    - "Auckland"
+    - "SIRIS"
+    - "SDGO"
     - "SDSN"
 
   # Subset of SDGs to consider (1–17). Empty or NULL means "all".

@@ -3,147 +3,18 @@
 # SDG detection helpers for the URV SDGs tracker pipeline.
 #
 # Responsibilities:
-#   - optionally rebuild a translated guides table from CSVs
-#     (when sdg_detection$input_mode == "csv")
 #   - build the SDG input table (document_number x section x text)
+#     from the translated guides table (guides_translated)
 #   - run text2sdg (systems or ensemble)
 #   - summarise hits (long and wide)
 #   - attach SDG summaries back to the guides table
 #
 # NOTE:
-#   - attach_translations_to_guides() is defined in
-#     src/pipelines/03_translate/03_translate_functions.R
-#     and must be sourced by _targets.R before these functions.
-#   - translation CSVs are assumed to live in translate$output_dir
-#     (e.g. "sandbox/translations") and follow the naming pattern
-#     "<column>-<target_lang>-<service>.csv" with columns:
-#       * id
-#       * original
-#       * detected_language
-#       * confidence
-#       * translated_text
-
-# -------------------------------------------------------------------
-# Load translation CSVs from disk (for input_mode == "csv")
-# -------------------------------------------------------------------
-
-load_translation_csvs <- function(translate_cfg, sdg_cfg = NULL) {
-  # Decide directory for translation CSVs:
-  # 1) sdg_detection$translation_dir (if provided)
-  # 2) translate$output_dir
-  output_dir <- NULL
-  
-  if (!is.null(sdg_cfg) && !is.null(sdg_cfg$translation_dir)) {
-    output_dir <- sdg_cfg$translation_dir
-  }
-  if (is.null(output_dir) || !nzchar(output_dir)) {
-    output_dir <- translate_cfg$output_dir %||% "sandbox/translations"
-  }
-  
-  if (!dir.exists(output_dir)) {
-    warning(
-      "load_translation_csvs(): translation directory does not exist: ",
-      output_dir
-    )
-    return(list())
-  }
-  
-  service     <- tolower(translate_cfg$service %||% "libretranslate")
-  target_lang <- translate_cfg$target_lang %||% "en"
-  
-  # Columns that were translated in the translate phase:
-  #   - if translate_cfg$columns is set, use that list
-  #   - otherwise, fall back to the defaults
-  if (!is.null(translate_cfg$columns)) {
-    columns_cfg <- translate_cfg$columns
-  } else {
-    columns_cfg <- c(
-      "course_name_clean",
-      "description_clean",
-      "contents_clean",
-      "competences_learning_results_clean",
-      "references_clean"
-    )
-  }
-  
-  translation_dfs <- list()
-  
-  for (col in columns_cfg) {
-    file_path <- file.path(
-      output_dir,
-      paste0(col, "-", target_lang, "-", service, ".csv")
-    )
-    
-    if (!file.exists(file_path)) {
-      warning(
-        "load_translation_csvs(): translation CSV not found for column '",
-        col, "': ", file_path, " (skipping)."
-      )
-      next
-    }
-    
-    tr_df <- readr::read_csv(file_path, show_col_types = FALSE)
-    
-    required_cols <- c("id", "translated_text")
-    missing_cols  <- setdiff(required_cols, names(tr_df))
-    if (length(missing_cols)) {
-      warning(
-        "load_translation_csvs(): CSV ", file_path,
-        " is missing required columns: ",
-        paste(missing_cols, collapse = ", "),
-        ". Skipping this file."
-      )
-      next
-    }
-    
-    translation_dfs[[col]] <- tr_df
-  }
-  
-  translation_dfs
-}
-
-# -------------------------------------------------------------------
-# Prepare guides table for SDG detection
-#   - Either use guides_translated (in-memory)
-#   - Or rebuild a translated table from CSVs
-# -------------------------------------------------------------------
-
-prepare_guides_for_sdg <- function(
-    guides_clean,
-    guides_translated,
-    translate_cfg,
-    sdg_cfg
-) {
-  mode <- sdg_cfg$input_mode %||% "object"
-  
-  if (identical(mode, "csv")) {
-    message("prepare_guides_for_sdg(): using translation CSVs from disk.")
-    
-    if (!exists("attach_translations_to_guides")) {
-      stop(
-        "attach_translations_to_guides() is not available.\n",
-        "Make sure src/pipelines/03_translate/03_translate_functions.R ",
-        "is sourced by _targets.R before SDG functions."
-      )
-    }
-    
-    translation_dfs <- load_translation_csvs(translate_cfg, sdg_cfg)
-    
-    if (!length(translation_dfs)) {
-      warning(
-        "prepare_guides_for_sdg(): no usable translation CSVs found. ",
-        "Falling back to in-memory guides_translated."
-      )
-      return(guides_translated)
-    }
-    
-    # Build a translated table from guides_clean + CSVs
-    attach_translations_to_guides(guides_clean, translation_dfs)
-  } else {
-    message("prepare_guides_for_sdg(): using in-memory guides_translated.")
-    guides_translated
-  }
-}
+#   - guides_translated is produced by the translation phase, which
+#     can run in "auto" or "reviewer" mode. From the SDG point of view,
+#     it is always just a data frame with *_en columns.
+#   - attach_sdg_to_guides() only joins sdg_hits_wide back to whatever
+#     guides table you pass in (typically guides_translated).
 
 # -------------------------------------------------------------------
 # Build SDG input table from a translated guides table and sdg config
@@ -159,7 +30,7 @@ prepare_guides_for_sdg <- function(
 #       - id: "course_info"
 #         prefix: "Course information: "
 #         columns: [ ... *_en ]
-build_sdg_input <- function(guides_for_sdg, sdg_cfg) {
+build_sdg_input <- function(guides_translated, sdg_cfg) {
   combine_groups <- sdg_cfg$combine_groups
   
   # ------------------------------------------------------------------
@@ -180,7 +51,7 @@ build_sdg_input <- function(guides_for_sdg, sdg_cfg) {
       "references_en"
     )
     
-    cols_existing <- intersect(default_cols, names(guides_for_sdg))
+    cols_existing <- intersect(default_cols, names(guides_translated))
     if (!length(cols_existing)) {
       stop(
         "build_sdg_input(): no translatable columns found. ",
@@ -189,7 +60,7 @@ build_sdg_input <- function(guides_for_sdg, sdg_cfg) {
       )
     }
     
-    tmp <- guides_for_sdg |>
+    tmp <- guides_translated |>
       dplyr::select(document_number, dplyr::all_of(cols_existing))
     
     text_vec <- apply(
@@ -203,7 +74,7 @@ build_sdg_input <- function(guides_for_sdg, sdg_cfg) {
     )
     
     sdg_input <- tibble::tibble(
-      document_number = guides_for_sdg$document_number,
+      document_number = guides_translated$document_number,
       section         = "all_text",
       text            = text_vec
     ) |>
@@ -237,7 +108,7 @@ build_sdg_input <- function(guides_for_sdg, sdg_cfg) {
       next
     }
     
-    cols_existing <- intersect(cols, names(guides_for_sdg))
+    cols_existing <- intersect(cols, names(guides_translated))
     missing_cols  <- setdiff(cols, cols_existing)
     
     if (length(missing_cols)) {
@@ -253,7 +124,7 @@ build_sdg_input <- function(guides_for_sdg, sdg_cfg) {
       next
     }
     
-    tmp <- guides_for_sdg |>
+    tmp <- guides_translated |>
       dplyr::select(document_number, dplyr::all_of(cols_existing))
     
     text_vec <- apply(
@@ -276,7 +147,7 @@ build_sdg_input <- function(guides_for_sdg, sdg_cfg) {
     }
     
     df_grp <- tibble::tibble(
-      document_number = guides_for_sdg$document_number,
+      document_number = guides_translated$document_number,
       section         = id,
       text            = text_vec
     ) |>
@@ -448,7 +319,7 @@ summarise_sdg_hits_wide <- function(sdg_long, sdg_cfg) {
 # Attach SDG wide summary back to the guides table
 # -------------------------------------------------------------------
 
-attach_sdg_to_guides <- function(guides_for_sdg, sdg_hits_wide) {
-  guides_for_sdg %>%
+attach_sdg_to_guides <- function(guides_translated, sdg_hits_wide) {
+  guides_translated %>%
     dplyr::left_join(sdg_hits_wide, by = "document_number")
 }

@@ -36,6 +36,7 @@ run_column_translations <- function(guides_clean, translate_cfg) {
   target_lang <- translate_cfg$target_lang %||% "en"
   max_cores   <- translate_cfg$max_cores %||% parallel::detectCores()
   batch_size  <- translate_cfg$batch_size %||% 100
+  mode        <- translate_cfg$mode %||% "auto"
   
   # Columns to translate:
   #   - if translate_cfg$columns is set, use that list
@@ -71,12 +72,58 @@ run_column_translations <- function(guides_clean, translate_cfg) {
   }
   
   message(
-    "Translating columns with service = ", service, ": ",
+    "Translating columns with service = ", service,
+    " and mode = ", mode, ": ",
     paste(cols_to_translate, collapse = ", ")
   )
   
   translation_dfs <- list()
   
+  # ------------------------------------------------------------------
+  # Reviewer mode: do NOT call the service, only read existing CSVs
+  # ------------------------------------------------------------------
+  if (identical(mode, "reviewer")) {
+    for (col in cols_to_translate) {
+      out_file <- file.path(
+        output_dir,
+        paste0(col, "-", target_lang, "-", service, ".csv")
+      )
+      
+      if (!file.exists(out_file)) {
+        stop(
+          "run_column_translations(): reviewer mode is enabled but ",
+          "translation file does not exist: ", out_file, "\n",
+          "Generate it first with translate.mode = 'auto' and then ",
+          "switch to 'reviewer' after manual edits."
+        )
+      }
+      
+      message(
+        "Reviewer mode: loading existing translation file for column '",
+        col, "': ", out_file
+      )
+      
+      tr_df <- readr::read_csv(out_file, show_col_types = FALSE)
+      
+      required_cols <- c("id", "translated_text")
+      missing_cols  <- setdiff(required_cols, names(tr_df))
+      if (length(missing_cols)) {
+        stop(
+          "Translation file ", out_file,
+          " does not contain required columns: ",
+          paste(missing_cols, collapse = ", "), "."
+        )
+      }
+      
+      translation_dfs[[col]] <- tr_df
+    }
+    
+    return(translation_dfs)
+  }
+  
+  # ------------------------------------------------------------------
+  # Auto mode: call the translation service and (re)create CSVs
+  # ------------------------------------------------------------------
   for (col in cols_to_translate) {
     out_file <- file.path(
       output_dir,
@@ -88,34 +135,22 @@ run_column_translations <- function(guides_clean, translate_cfg) {
       file.remove(out_file)
     }
     
-    # Optional per-column context (prefix/suffix) from config
-    ctx_prefix <- NULL
-    ctx_suffix <- NULL
-    if (!is.null(translate_cfg$column_contexts) &&
-        !is.null(translate_cfg$column_contexts[[col]])) {
-      ctx <- translate_cfg$column_contexts[[col]]
-      ctx_prefix <- ctx$prefix %||% NULL
-      ctx_suffix <- ctx$suffix %||% NULL
-    }
-    
     message(
       "Translating column '", col, "' into ", target_lang,
-      " using service = ", service,
-      if (!is.null(ctx_prefix) || !is.null(ctx_suffix)) " with context." else ""
+      " using service = ", service
     )
     
     translate_column(
-      df             = guides_clean,
-      column         = col,
-      source_lang    = source_lang,
-      target_lang    = target_lang,
-      file_path      = out_file,
-      batch_size     = batch_size,
-      max_cores      = max_cores,
-      id_column      = "document_number",
-      service        = service,
-      context_prefix = ctx_prefix,
-      context_suffix = ctx_suffix
+      df          = guides_clean,
+      column      = col,
+      source_lang = source_lang,
+      target_lang = target_lang,
+      file_path   = out_file,
+      batch_size  = batch_size,
+      max_cores   = max_cores,
+      id_column   = "document_number",
+      service     = service
+      # context can be added via translate_cfg later if needed.
     )
     
     if (!file.exists(out_file)) {
@@ -142,6 +177,7 @@ run_column_translations <- function(guides_clean, translate_cfg) {
   
   translation_dfs
 }
+
 
 # -------------------------------------------------------------------
 # Attach translations to guides_clean

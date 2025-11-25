@@ -1,18 +1,18 @@
 {
     "_id": "degree_programs_list",
     "startUrl": [
-        "https://guiadocent.urv.cat/guido/public/centres/504/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/499/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/502/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/498/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/501/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/500/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/493/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/497/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/494/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/496/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/495/ensenyaments/gestionar",
-        "https://guiadocent.urv.cat/guido/public/centres/503/ensenyaments/gestionar"
+	"https://guiadocent.urv.cat/guido/public/centres/532/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/527/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/530/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/526/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/529/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/528/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/521/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/525/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/522/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/524/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/523/ensenyaments/gestionar",
+	"https://guiadocent.urv.cat/guido/public/centres/531/ensenyaments/gestionar"
     ],
     "selectors": [
         {
@@ -24,4 +24,3 @@
         }
     ]
 }
-
