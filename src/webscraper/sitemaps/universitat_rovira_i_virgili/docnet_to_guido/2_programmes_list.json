@@ -1,0 +1,28 @@
+{
+  "_id": "2_programmes_list",
+  "startUrl": [
+"https://guiadocent.urv.cat/guido/public/centres/532/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/527/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/530/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/526/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/529/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/528/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/521/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/525/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/522/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/524/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/523/ensenyaments/gestionar?&idioma=ca",
+"https://guiadocent.urv.cat/guido/public/centres/531/ensenyaments/gestionar?&idioma=ca"
+  ],
+  "selectors": [
+    {
+      "id": "programme_name",
+      "type": "SelectorLink",
+      "parentSelectors": ["_root"],
+      "selector": "table a[href$='detall']",
+      "multiple": true,
+      "delay": 2000
+    }
+  ]
+}
+

@@ -2,7 +2,7 @@
 # Global configuration for the URV SDGs tracker pipeline.
 #
 # This file is meant to centralise configuration for all pipeline phases:
-#   - import (data access and loading)
+#   - load (data access and loading)
 #   - clean  (text cleaning and normalisation)
 #   - translate (optional translation layer)
 #   - sdg_detection (text2sdg parameters, model choices, etc.)
@@ -15,37 +15,30 @@ global:
   project_name: "URV SDGs tracker"
 
   parallel:
-    enabled: true          # set to false to force sequential execution
-    backend: "future"      # currently only "future" is supported in run_pipeline()
-    workers: 4             # number of R workers for tar_make_future()
-
+    enabled: true
+    backend: "future"
+    workers: 4
 
 # -------------------------------------------------------------------
-# import section
+# load section
 # -------------------------------------------------------------------
-import:
-  # Base directory to store all imported datasets.
+load:
+  # Base directory to store all loaded datasets.
   root: "data"
 
   # Repository-level folder inside `root`. In practice this should
   # match the top-level folder inside the Zenodo zip.
-  # Example: "urv_guides_repo"
-  dir: "urv_guides_repo"
+  dir: "urv_teaching_guides"
 
   # Subdirectory inside `root/dir` for a specific scraping batch.
-  # Example: "urv_guides-scraping_20250731"
-  subdir: "scraping_urv-guides_20250731"
+  subdir: "scraped-20251127"
 
-  # URL of the Zenodo (or other) archive to download when the import
-  # directory does not exist yet. Usually this will be a zip file
-  # containing the repository root (dir) and one or more scraping
-  # subdirectories.
-  #
-  # If empty / NULL, the pipeline will error if import_dir does not exist.
+  # URL of the Zenodo (or other) archive to download when the load
+  # directory does not exist yet.
   url: ""
 
   # Local path to store the downloaded archive, relative to the project root.
-  archive_path: "data/urv_guides_repo.zip"
+  archive_path: "data/urv_teaching_guides.zip"
 
   # If TRUE, always re-download the archive even if the local file exists.
   force_download: false
@@ -55,108 +48,39 @@ import:
   zip: true
 
   # Optional format identifier for the scraping layout.
-  # For now it is informational only.
   # format: "web_scraper_v1"
-
-
-# -------------------------------------------------------------------
-# clean section (placeholder)
-# -------------------------------------------------------------------
-# clean:
-#   enabled: true
-#   id_column: "document_number"
-#   keep_columns: [...]
-#   text_columns: [...]
-#   text_options:
-#     to_lower: true
-#     collapse_whitespace: true
-
 
 # -------------------------------------------------------------------
 # translate section
 # -------------------------------------------------------------------
 translate:
   enabled: true
-  
-  # How to run the translation phase:
-  # - "auto": call the translation service and (re)create the CSVs.
-  # - "reviewer": do NOT call the service, only read existing CSVs
-  #               (useful after manual edits of the CSV files).
   mode: "auto"
-
-  # Which backend to use: "libretranslate" or "apertium".
   service: "libretranslate"
-
-  # Language options.
   source_lang: "auto"
   target_lang: "en"
-
-  # Parallelisation (used inside translate_column batches).
   max_cores: 4
   batch_size: 200
-
-  # Output directory for raw translation CSVs produced by translate_column().
-  # This is where the pipeline will write translation CSVs and read them back.
   output_dir: "sandbox/translations"
-
-  # Columns of guides_clean that we want to translate.
   columns:
-    # - course_name_clean
-    - description_clean
-    - contents_clean
-    - competences_learning_results_clean
-    - references_clean
-
-  # Optional per-column context to help translation of very short texts
-  # column_contexts:
-  #   course_name_clean:
-  #     prefix: "Nom de l'assignatura: "
-  #     suffix: ""
-    # examples, adjust or remove as you like:
-    # competences_learning_results_clean:
-    #   prefix: "Learning outcomes: "
-    #   suffix: ""
-    # references_clean:
-    #   prefix: "References: "
-    #   suffix: ""
-
-  # Optional: check that the service is reachable before starting translation.
-  # If false, the pipeline will assume the service is up and fail with
-  # HTTP errors if it is not.
+    - description
+    - contents
+    - competences_learning_results
+    - references
   check_service: true
-
-  # LibreTranslate and Apertium are exposed on the host via docker-compose.
-  # Inside the RStudio container, we can reach them via service name and port.
   libretranslate_base_url: "http://libretranslate:5000"
   apertium_base_url: "http://apertium:2737"
-
-  # Healthcheck path for LibreTranslate. Many builds expose /health.
-  # If your image does not have /health, you can set this to "/".
   healthcheck_path: "/health"
-
-  # Healthcheck timeouts.
   healthcheck_timeout_sec: 60
   healthcheck_poll_interval_sec: 2
-
 
 # -------------------------------------------------------------------
 # sdg_detection section
 # -------------------------------------------------------------------
 sdg_detection:
-  # Master switch for the SDG detection phase.
   enabled: true
-
-  # Optional override for the directory where translation CSVs are stored.
-  # If NULL / missing, the code will fall back to translate$output_dir.
   translation_dir: "sandbox/translations"
-
-  # Which text2sdg interface to use:
-  # - "systems": use detect_sdg_systems() and compare multiple systems.
-  # - "ensemble": use detect_sdg() (ensemble classifier).
   method: "systems"
-
-  # List of SDG systems to run when method = "systems".
-  # These are passed to text2sdg::detect_sdg_systems().
   systems:
     - "Aurora"
     - "Elsevier"
@@ -164,59 +88,22 @@ sdg_detection:
     - "SIRIS"
     - "SDGO"
     - "SDSN"
-
-  # Subset of SDGs to consider (1–17). Empty or NULL means "all".
   sdgs: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
-
-  # If TRUE, text2sdg functions can print more details.
   verbose: false
-
-  # Groups of columns to be concatenated into a single text field
-  # per document_number and section, using the translated *_en columns.
-  #
-  # Each group defines:
-  #   - id:      section name used in sdg_input$section
-  #   - prefix:  optional label prepended to the concatenated text
-  #   - columns: list of *_en columns from guides_translated
   combine_groups:
     - id: "course_info"
       prefix: "Course information: "
       columns:
-        - description_clean_en
-        - contents_clean_en
-
+        - description_en
+        - contents_en
     - id: "competences"
       prefix: "Competences and learning outcomes: "
       columns:
-        - competences_learning_results_clean_en
-
+        - competences_learning_results_en
     - id: "references"
       prefix: "References: "
       columns:
-        - references_clean_en
-
-  # Aggregation options for the wide summary table (sdg_hits_wide).
+        - references_en
   aggregate:
-    # "counts": keep the number of hits per (system, sdg, section).
-    # "binary": 1 if hits >= min_hits, otherwise 0.
     mode: "counts"
-
-    # Minimum number of hits to consider presence when mode = "binary".
     min_hits: 1
-
-
-# -------------------------------------------------------------------
-# export section (placeholder)
-# -------------------------------------------------------------------
-# export:
-#   output_dir: "dist"
-#   # formats: ["csv", "xlsx", "json"]
-#   # include_metadata: true
-
-# -------------------------------------------------------------------
-# analysis / dashboard section (placeholder)
-# -------------------------------------------------------------------
-# analysis:
-#   default_faculty: "Facultat de Turisme i Geografia"
-#   # default_sdg_set: "UN_17"
-#   # default_view: "faculty"

@@ -1,73 +1,5 @@
 # File: run_pipeline.R
 # Helper to run and inspect the URV SDGs tracker pipeline from RStudio.
-#
-# -------------------------------------------------------------------
-# How to use this helper
-# -------------------------------------------------------------------
-#
-# 1) From a clean RStudio session (inside the Docker container):
-#
-#    source("run_pipeline.R")
-#
-# 2) Choose a mode:
-#
-#    - "main"   : run the whole pipeline defined in _targets.R
-#                 but only load the main results of each phase
-#                 into the global environment (recommended default).
-#
-#    - "all"    : run the whole pipeline and load **all** targets
-#                 into the global environment (can be heavy).
-#
-#    - "import" : run the import layer, up to a per-course index
-#                 (typically targets like `guides_raw` and `guides_index`).
-#
-#    - "clean"  : run the cleaning layer (e.g. `guides_clean`),
-#                 which depends on the import layer.
-#
-#    - "minimal": lightweight end-to-end: only
-#                 `guides_index` and `guides_clean`.
-#
-#    - "custom" : you specify exactly which targets to run
-#                 via the `targets` argument.
-#
-# 3) Example calls:
-#
-#    run_pipeline("main")
-#    run_pipeline("all")
-#    run_pipeline("import")
-#    run_pipeline("minimal", remake = TRUE)
-#    run_pipeline(mode = "custom", targets = c("guides_index", "guides_clean"))
-#
-# 4) Parallel execution:
-#
-#    - Global defaults are read from config/pipeline.yml:
-#        global:
-#          parallel:
-#            enabled: true
-#            backend: "future"
-#            workers: 4
-#
-#    - You can override this per run:
-#        run_pipeline("main", use_parallel = FALSE)  # force sequential
-#        run_pipeline("main", use_parallel = TRUE)   # force parallel
-#
-# 5) Remake / clean rebuild:
-#
-#    - remake = FALSE (default): standard incremental build (only outdated targets).
-#    - remake = TRUE:
-#        * Full pipeline (mode "all" or "main" with no explicit `targets`):
-#            tar_destroy(destroy = "all")  # start from scratch.
-#        * Partial run:
-#            - If tar_delete() exists (newer targets): delete stored values for
-#              selected targets (forces them to rerun next tar_make()).
-#            - If tar_delete() does NOT exist (older targets): fallback to
-#              tar_destroy(destroy = "meta") (invalidates broadly).
-#
-# 6) Global environment hygiene:
-#
-#    - Before loading updated targets into .GlobalEnv, any existing objects whose
-#      names coincide with pipeline target names are removed (with a warning).
-#      This avoids keeping stale copies of targets in the environment.
 
 library(targets)
 library(yaml)
@@ -78,26 +10,13 @@ library(rlang)
 # Logging helpers
 # -------------------------------------------------------------------
 
-# Centralised path for the pipeline log file.
-# This should match the path used inside 99_logging/get_log_path().
 get_pipeline_log_path <- function() {
   file.path("sandbox", "logs", "targets_log.csv")
 }
 
-# Write (or append) information about the last run to the log CSV.
 log_pipeline_run <- function(mode, targets_run, log_path = get_pipeline_log_path()) {
   meta <- targets::tar_meta(
-    fields = c(
-      name,
-      started,
-      time,
-      seconds,
-      bytes,
-      error,
-      warning,
-      pattern,
-      iteration
-    )
+    fields = c(name, started, time, seconds, bytes, error, warning, pattern, iteration)
   )
   
   if (!nrow(meta)) {
@@ -143,26 +62,14 @@ log_pipeline_run <- function(mode, targets_run, log_path = get_pipeline_log_path
 # Target name helpers (manifest/store-compatible)
 # -------------------------------------------------------------------
 
-# Return target names from the pipeline definition if possible (tar_manifest),
-# otherwise fallback to what exists in the store (tar_meta).
 get_pipeline_target_names <- function() {
   if (exists("tar_manifest", where = asNamespace("targets"), inherits = FALSE)) {
-    man <- tryCatch(
-      targets::tar_manifest(fields = name),
-      error = function(e) NULL
-    )
-    if (!is.null(man) && nrow(man)) {
-      return(as.character(man$name))
-    }
+    man <- tryCatch(targets::tar_manifest(fields = name), error = function(e) NULL)
+    if (!is.null(man) && nrow(man)) return(as.character(man$name))
   }
   
-  meta <- tryCatch(
-    targets::tar_meta(fields = name),
-    error = function(e) NULL
-  )
-  if (!is.null(meta) && nrow(meta)) {
-    return(as.character(meta$name))
-  }
+  meta <- tryCatch(targets::tar_meta(fields = name), error = function(e) NULL)
+  if (!is.null(meta) && nrow(meta)) return(as.character(meta$name))
   
   character(0)
 }
@@ -172,6 +79,9 @@ get_pipeline_target_names <- function() {
 # -------------------------------------------------------------------
 
 load_targets_interactive <- function(target_names) {
+  target_names <- unique(as.character(target_names))
+  target_names <- target_names[nzchar(target_names)]
+  
   if (!length(target_names)) {
     message("No targets requested for loading.")
     return(invisible(NULL))
@@ -225,10 +135,7 @@ clean_stale_targets_in_env <- function(remove = TRUE, restrict_to = NULL) {
     paste(sort(to_remove), collapse = "\n  - ")
   )
   
-  if (isTRUE(remove)) {
-    rm(list = to_remove, envir = .GlobalEnv)
-  }
-  
+  if (isTRUE(remove)) rm(list = to_remove, envir = .GlobalEnv)
   invisible(to_remove)
 }
 
@@ -236,13 +143,11 @@ clean_stale_targets_in_env <- function(remove = TRUE, restrict_to = NULL) {
 # Remake helpers (version-compatible)
 # -------------------------------------------------------------------
 
-# Full remake = destroy the whole store.
 remake_all_targets <- function() {
   targets::tar_destroy(destroy = "all")
   invisible(TRUE)
 }
 
-# Partial remake = prefer tar_delete() if available, otherwise fallback.
 remake_selected_targets <- function(target_names) {
   target_names <- unique(as.character(target_names))
   target_names <- target_names[nzchar(target_names)]
@@ -257,7 +162,6 @@ remake_selected_targets <- function(target_names) {
       "remake_selected_targets(): deleting stored values for targets:\n  - ",
       paste(sort(target_names), collapse = "\n  - ")
     )
-    # tar_delete() expects a tidyselect expression; any_of(vec) works well here.
     targets::tar_delete(tidyselect::any_of(target_names))
     return(invisible(TRUE))
   }
@@ -276,16 +180,12 @@ remake_selected_targets <- function(target_names) {
 
 get_parallel_config <- function() {
   cfg_path <- file.path("config", "pipeline.yml")
-  if (!file.exists(cfg_path)) {
-    return(list(enabled = FALSE, backend = "future", workers = 1L))
-  }
+  if (!file.exists(cfg_path)) return(list(enabled = FALSE, backend = "future", workers = 1L))
   
   cfg <- yaml::read_yaml(cfg_path)
   parallel_cfg <- cfg$global$parallel
   
-  if (is.null(parallel_cfg)) {
-    return(list(enabled = FALSE, backend = "future", workers = 1L))
-  }
+  if (is.null(parallel_cfg)) return(list(enabled = FALSE, backend = "future", workers = 1L))
   
   list(
     enabled = isTRUE(parallel_cfg$enabled),
@@ -295,11 +195,34 @@ get_parallel_config <- function() {
 }
 
 # -------------------------------------------------------------------
+# Internal: print a compact error summary if something failed
+# -------------------------------------------------------------------
+
+print_errored_targets_summary <- function() {
+  meta <- tryCatch(
+    targets::tar_meta(fields = c(name, error)),
+    error = function(e) NULL
+  )
+  
+  if (is.null(meta) || !is.data.frame(meta) || nrow(meta) == 0) {
+    return(invisible(NULL))
+  }
+  
+  err <- dplyr::filter(meta, !is.na(error) & nzchar(error))
+  if (nrow(err) == 0) return(invisible(NULL))
+  
+  message("Some targets errored:")
+  print(err, row.names = FALSE)
+  invisible(NULL)
+}
+
+
+# -------------------------------------------------------------------
 # Main entry point to run the pipeline
 # -------------------------------------------------------------------
 
 run_pipeline <- function(
-    mode = c("all", "main", "import", "clean", "minimal", "custom"),
+    mode = c("all", "main", "load", "custom"),
     targets = NULL,
     load_interactively = TRUE,
     load_targets = NULL,
@@ -313,7 +236,7 @@ run_pipeline <- function(
   # Decide which targets to run
   # ---------------------------------------------------------------
   if (!is.null(targets)) {
-    targets_to_run <- as.character(targets)
+    targets_to_run <- unique(as.character(targets))
     message(
       "run_pipeline(): using explicit targets for execution: ",
       paste(targets_to_run, collapse = ", ")
@@ -321,24 +244,27 @@ run_pipeline <- function(
   } else {
     targets_to_run <- switch(
       mode,
-      "all"     = NULL,  # full pipeline
-      "main"    = NULL,  # full pipeline; only loading differs
-      "import"  = c("guides_raw", "guides_index"),
-      "clean"   = c("guides_clean"),
-      "minimal" = c("guides_index", "guides_clean"),
-      "custom"  = stop('run_pipeline(mode = "custom") requires a non-NULL `targets` argument.')
+      "all"  = NULL,
+      "main" = NULL,
+      "load" = c(
+        "centres_list",
+        "programmes_list",
+        "course_details_list",
+        "guido_docnet_course_code_map",
+        "docnet_course_info",
+        "guido_course_info",
+        "guides_index"
+      ),
+      "custom" = stop('run_pipeline(mode = "custom") requires a non-NULL `targets` argument.')
     )
   }
   
   # ---------------------------------------------------------------
-  # Optional remake: destroy/delete before running
+  # Optional remake
   # ---------------------------------------------------------------
   if (isTRUE(remake)) {
     if (is.null(targets_to_run)) {
-      message(
-        "run_pipeline(): remake = TRUE and full pipeline selected (mode = '",
-        mode, "'). Destroying ALL targets before running."
-      )
+      message("run_pipeline(): remake = TRUE and full pipeline selected. Destroying ALL targets.")
       remake_all_targets()
     } else {
       message(
@@ -350,7 +276,7 @@ run_pipeline <- function(
   }
   
   # ---------------------------------------------------------------
-  # Decide sequential vs parallel based on config and use_parallel
+  # Decide sequential vs parallel
   # ---------------------------------------------------------------
   parallel_cfg <- get_parallel_config()
   
@@ -360,9 +286,6 @@ run_pipeline <- function(
     use_parallel_flag <- isTRUE(use_parallel)
   }
   
-  # ---------------------------------------------------------------
-  # Run the pipeline (full or partial)
-  # ---------------------------------------------------------------
   if (use_parallel_flag) {
     if (!exists("tar_make_future", where = asNamespace("targets"), inherits = FALSE)) {
       warning(
@@ -373,11 +296,11 @@ run_pipeline <- function(
     }
   }
   
+  # ---------------------------------------------------------------
+  # Run the pipeline
+  # ---------------------------------------------------------------
   if (use_parallel_flag) {
-    message(
-      "Using parallel execution via tar_make_future() with ",
-      parallel_cfg$workers, " workers."
-    )
+    message("Using parallel execution via tar_make_future() with ", parallel_cfg$workers, " workers.")
     future::plan(multisession, workers = parallel_cfg$workers)
     
     if (is.null(targets_to_run)) {
@@ -399,23 +322,21 @@ run_pipeline <- function(
     } else {
       message('Running selected targets (mode = "', mode, '"):')
       print(targets_to_run)
-      targets::tar_make(names = targets_to_run)
-    }
+      targets::tar_make(names = targets_to_run)    }
   }
   
+  # Print error summary (if any) right after the run.
+  print_errored_targets_summary()
+  
   # ---------------------------------------------------------------
-  # Optional logging of the last run
+  # Optional logging
   # ---------------------------------------------------------------
-  if (isTRUE(log_run)) {
-    log_pipeline_run(mode = mode, targets_run = targets_to_run)
-  }
+  if (isTRUE(log_run)) log_pipeline_run(mode = mode, targets_run = targets_to_run)
   
   # ---------------------------------------------------------------
   # Optionally load targets into the global environment
   # ---------------------------------------------------------------
-  if (!isTRUE(load_interactively)) {
-    return(invisible(NULL))
-  }
+  if (!isTRUE(load_interactively)) return(invisible(NULL))
   
   if (is.null(load_targets)) {
     load_targets <- if (!is.null(targets)) {
@@ -423,15 +344,9 @@ run_pipeline <- function(
     } else {
       switch(
         mode,
-        "all" = {
-          # Prefer manifest (pipeline definition), fallback to store.
-          get_pipeline_target_names()
-        },
+        "all"  = get_pipeline_target_names(),
         "main" = c(
-          # Main “headline” tables per phase (adjust as needed)
-          "guides_raw",
           "guides_index",
-          "guides_clean",
           "guides_translated",
           "sdg_config",
           "sdg_input",
@@ -439,19 +354,14 @@ run_pipeline <- function(
           "sdg_hits_wide",
           "guides_sdg"
         ),
-        "import"  = c("guides_raw", "guides_index"),
-        "clean"   = c("guides_clean"),
-        "minimal" = c("guides_index", "guides_clean"),
-        "custom"  = targets_to_run,
+        "load"   = c("docnet_course_info", "guido_course_info", "guides_index"),
+        "custom" = targets_to_run,
         character(0)
       )
     }
   }
   
-  # Avoid stale objects: warn + remove before loading fresh values.
-  # Restrict the cleanup to the set we are about to (re)load to reduce noise.
   clean_stale_targets_in_env(remove = TRUE, restrict_to = load_targets)
-  
   load_targets_interactive(load_targets)
   invisible(NULL)
 }

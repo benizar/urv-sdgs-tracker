@@ -1,0 +1,32 @@
+{
+  "_id": "1_centres_list",
+  "startUrl": [
+    "https://guiadocent.urv.cat/guido/public/centres/gestionar?idioma=ca&anyAcademicId=461"
+  ],
+  "selectors": [
+    {
+      "id": "centre_row",
+      "parentSelectors": ["_root"],
+      "type": "SelectorElement",
+      "selector": "#listTable",
+      "multiple": false,
+      "delay": 12000
+    },
+    {
+      "id": "centre",
+      "parentSelectors": ["centre_row"],
+      "type": "SelectorElement",
+      "selector": "tbody tr",
+      "multiple": true,
+      "delay": 1000
+    },
+    {
+      "id": "centre_name",
+      "parentSelectors": ["centre"],
+      "type": "SelectorLink",
+      "selector": "td a",
+      "multiple": false
+    }
+  ]
+}
+

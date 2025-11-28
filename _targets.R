@@ -11,6 +11,8 @@ tar_option_set(
     "jsonlite",
     "openxlsx",
     "yaml",
+    "xml2",
+    "stringi",
     # text / SDG
     "text2sdg",
     "corpustools",
@@ -40,10 +42,9 @@ if (dir.exists(common_dir)) {
 # -------------------------------------------------------------------
 pipeline_dirs <- c(
   "src/pipelines/00_config",
-  "src/pipelines/01_import",
-  "src/pipelines/02_clean",
-  "src/pipelines/03_translate",
-  "src/pipelines/04_detect_sdg",
+  "src/pipelines/01_load",
+  "src/pipelines/02_translate",
+  "src/pipelines/03_detect_sdg",
   "src/pipelines/99_logging"
   # ...
 )
@@ -67,12 +68,11 @@ lapply(pipeline_files, source)
 # -------------------------------------------------------------------
 list(
   targets_config,       # 00_config/00_config_targets.R
-  targets_import,       # 01_import/01_import_targets.R
-  targets_clean,        # 02_clean/02_clean_targets.R
-  targets_translate,    # 03_translate/03_translate_targets.R
-  targets_sdg,          # 04_detect_sdg/04_detect_sdg_targets.R
-  # targets_validation,   # 05_validation/05_validation_targets.R
-  # targets_export,       # 06_export/06_export_targets.R
-  # targets_analysis      # 07_analysis/07_analysis_targets.R
+  targets_load,         # 01_load/01_load_targets.R
+  targets_translate,    # 02_translate/02_translate_targets.R
+  targets_sdg,          # 03_detect_sdg/03_detect_sdg_targets.R
+  # targets_validation,   # 04_validation/04_validation_targets.R
+  # targets_export,       # 05_export/05_export_targets.R
+  # targets_analysis      # 06_analysis/06_analysis_targets.R
   targets_logging       # 99_analysis/99_logging_targets.R
 )
