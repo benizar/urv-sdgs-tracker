@@ -1,33 +1,30 @@
 # File: src/pipelines/01_load/01_load_functions.R
 # Load functions for reading guides data from a single data batch.
 #
-# CURRENT BEHAVIOUR:
-#   - Reads configuration from config/pipeline.yml.
-#   - The `load` section controls:
-#       * where the CSVs are stored locally (root/dir/subdir)
-#       * which URL to use if the directory does not exist.
-#       * where to save the downloaded archive (archive_path)
-#       * whether to force re-download (force_download)
-#
-#   - If the local load directory already exists:
-#       * it is used as-is and no download is attempted.
-#   - If it does NOT exist:
-#       * the dataset is downloaded from the configured URL (if set),
-#         saved to archive_path, and unzipped into `root` if needed.
-#       * the pipeline assumes the zip creates a top-level folder
-#         named `dir` under `root`.
-#
 # NOTE:
-#   - Structural joins are performed explicitly in a master function.
+#   - Structural joins are performed explicitly in build_guides_index_from_loaded().
 #   - base::merge() is avoided to reduce accidental row multiplication.
-#   - DOCNET and GUIDO course info are parsed/normalised with the same helpers
-#     from src/common (extract_text_from_html, normalize_name_list_cell_particles, %||%).
+#   - DOCnet competences + learning results are fused into:
+#       course_competences_and_results
+#   - DOCnet course_code includes optional modality suffix letter (v/s/p...).
+
+# -------------------------------------------------------------------
+# Column order conventions
+# -------------------------------------------------------------------
+
+course_info_col_order <- c(
+  "course_coordinators",
+  "course_professors",
+  "course_description",
+  "course_contents",
+  "course_competences_and_results",
+  "course_references"
+)
 
 # -------------------------------------------------------------------
 # Pipeline configuration loader
 # -------------------------------------------------------------------
 
-# Load the main pipeline YAML configuration.
 load_pipeline_config <- function(path = "config/pipeline.yml") {
   if (!file.exists(path)) stop("Pipeline config file not found: ", path)
   yaml::read_yaml(path)
@@ -37,7 +34,6 @@ load_pipeline_config <- function(path = "config/pipeline.yml") {
 # Load directory resolution and data download
 # -------------------------------------------------------------------
 
-# Resolve the directory used as input for the load step.
 resolve_load_dir <- function(load_cfg) {
   root   <- load_cfg$root %||% "data"
   dir    <- load_cfg$dir
@@ -49,7 +45,6 @@ resolve_load_dir <- function(load_cfg) {
   file.path(root, dir, subdir)
 }
 
-# Ensure the load directory exists and contains the data.
 ensure_load_data <- function(load_cfg) {
   root           <- load_cfg$root %||% "data"
   dir            <- load_cfg$dir
@@ -64,13 +59,11 @@ ensure_load_data <- function(load_cfg) {
   base_dir <- file.path(root, dir)
   load_dir <- if (is.null(subdir) || !nzchar(subdir)) base_dir else file.path(base_dir, subdir)
   
-  # Case 1: load_dir already exists -> use it as-is.
   if (dir.exists(load_dir)) {
     message("Using existing load directory: ", load_dir)
     return(load_dir)
   }
   
-  # Case 2: load_dir does not exist. If repo root does not exist, download it.
   if (!dir.exists(base_dir)) {
     if (is.null(url) || !nzchar(url)) {
       stop(
@@ -82,11 +75,8 @@ ensure_load_data <- function(load_cfg) {
     }
     
     if (!dir.exists(root)) dir.create(root, recursive = TRUE, showWarnings = FALSE)
-    
-    # Ensure archive_path parent dir exists.
     dir.create(dirname(archive_path), recursive = TRUE, showWarnings = FALSE)
     
-    # Download archive to archive_path when needed.
     if (force_download || !file.exists(archive_path)) {
       message("Repository root not found (", base_dir, ").")
       message("Will download archive from: ", url)
@@ -97,7 +87,6 @@ ensure_load_data <- function(load_cfg) {
       message("Using existing archive file: ", archive_path)
     }
     
-    # Extract/copy archive.
     if (is_zip) {
       utils::unzip(archive_path, exdir = root)
       message("Unzipped archive into: ", root)
@@ -131,9 +120,6 @@ ensure_load_data <- function(load_cfg) {
 # Loader helpers
 # -------------------------------------------------------------------
 
-# Clean + parse a course info table that contains *_html columns.
-# Assumes extract_text_from_html() and normalize_name_list_cell_particles()
-# are available from src/common.
 clean_course_info_table <- function(df,
                                     id_col,
                                     collapse = ";\n",
@@ -155,7 +141,6 @@ clean_course_info_table <- function(df,
       )
     )
   
-  # Normalise staff lists if present.
   if ("course_coordinators_html" %in% names(out)) {
     out <- out |>
       dplyr::mutate(course_coordinators_html = normalize_name_list_cell_particles(course_coordinators_html))
@@ -175,13 +160,6 @@ clean_course_info_table <- function(df,
 # -------------------------------------------------------------------
 
 get_centres_list <- function(load_dir, csv_name = "1_centres_list.csv") {
-  if (!is.character(load_dir) || length(load_dir) != 1 || !nzchar(load_dir)) {
-    stop("`load_dir` must be a non-empty character scalar.")
-  }
-  if (!is.character(csv_name) || length(csv_name) != 1 || !nzchar(csv_name)) {
-    stop("`csv_name` must be a non-empty character scalar.")
-  }
-  
   filepath <- file.path(load_dir, csv_name)
   if (!file.exists(filepath)) stop("File does not exist: ", filepath)
   
@@ -199,13 +177,6 @@ get_centres_list <- function(load_dir, csv_name = "1_centres_list.csv") {
 }
 
 get_programmes_list <- function(load_dir, csv_name = "2_programmes_list.csv") {
-  if (!is.character(load_dir) || length(load_dir) != 1 || !nzchar(load_dir)) {
-    stop("`load_dir` must be a non-empty character scalar.")
-  }
-  if (!is.character(csv_name) || length(csv_name) != 1 || !nzchar(csv_name)) {
-    stop("`csv_name` must be a non-empty character scalar.")
-  }
-  
   filepath <- file.path(load_dir, csv_name)
   if (!file.exists(filepath)) stop("File does not exist: ", filepath)
   
@@ -237,13 +208,6 @@ get_programmes_list <- function(load_dir, csv_name = "2_programmes_list.csv") {
 }
 
 get_course_details_list <- function(load_dir, csv_name = "3_course_details_list.csv") {
-  if (!is.character(load_dir) || length(load_dir) != 1 || !nzchar(load_dir)) {
-    stop("`load_dir` must be a non-empty character scalar.")
-  }
-  if (!is.character(csv_name) || length(csv_name) != 1 || !nzchar(csv_name)) {
-    stop("`csv_name` must be a non-empty character scalar.")
-  }
-  
   filepath <- file.path(load_dir, csv_name)
   if (!file.exists(filepath)) stop("File does not exist: ", filepath)
   
@@ -278,6 +242,8 @@ get_course_details_list <- function(load_dir, csv_name = "3_course_details_list.
       centre_code    = stringr::str_match(programme_url, "/centres/(\\d{3})/")[, 2],
       programme_code = stringr::str_match(programme_url, "/ensenyaments/(\\d+)/")[, 2],
       centre_programme_code = paste0(centre_code, "_", programme_code),
+      
+      # Course details list is treated as GUIdO-code (digits) index.
       course_code = dplyr::if_else(
         is.na(course_url) | !nzchar(course_url),
         NA_character_,
@@ -317,24 +283,25 @@ get_guido_docnet_course_code_map <- function(load_dir, csv_name = "4_docnet_cour
   if (length(missing) > 0) stop("Missing expected column(s): ", paste(missing, collapse = ", "))
   
   df |>
+    dplyr::rename(guido_course_url = `web-scraper-start-url`) |>
     dplyr::mutate(
-      guido_centre_code    = stringr::str_match(`web-scraper-start-url`, "/centres/(\\d{3})/")[, 2],
-      guido_programme_code = stringr::str_match(`web-scraper-start-url`, "/ensenyaments/(\\d+)/")[, 2],
-      guido_course_code    = stringr::str_match(`web-scraper-start-url`, "/assignatures/(\\d+)/")[, 2],
-      guido_centre_programme_course_code = paste0(guido_centre_code, "_", guido_programme_code, "_", guido_course_code),
-      
-      docnet_centre_code    = stringr::str_match(docnet_course_url, "centre=([0-9]+)")[, 2],
-      docnet_programme_code = stringr::str_match(docnet_course_url, "ensenyament=([0-9]+)")[, 2],
-      docnet_course_code    = stringr::str_match(docnet_course_url, "assignatura=([0-9]+)")[, 2],
-      docnet_centre_programme_course_code = paste0(docnet_centre_code, "_", docnet_programme_code, "_", docnet_course_code)
+      guido  = purrr::map(guido_course_url,  parse_guido_course_url),
+      docnet = purrr::map(docnet_course_url, parse_docnet_course_url)
     ) |>
-    dplyr::select(
-      guido_centre_programme_course_code,
-      docnet_centre_programme_course_code,
-      guido_course_url = `web-scraper-start-url`,
-      docnet_course_url
+    tidyr::unnest_wider(guido,  names_sep = "_") |>
+    tidyr::unnest_wider(docnet, names_sep = "_") |>
+    dplyr::transmute(
+      guido_centre_programme_course_code  = paste0(guido_centre_code,  "_", guido_programme_code,  "_", guido_course_code),
+      docnet_centre_programme_course_code = paste0(docnet_centre_code, "_", docnet_programme_code, "_", docnet_course_code),
+      docnet_modality = docnet_modality,
+      guido_course_url = guido_course_url,
+      docnet_course_url = docnet_course_url
     )
 }
+
+# -------------------------------------------------------------------
+# Loader functions (DOCnet): clean + fuse competences/results
+# -------------------------------------------------------------------
 
 get_docnet_course_info <- function(load_dir,
                                    csv_name = "5_docnet_course_info.csv",
@@ -345,7 +312,7 @@ get_docnet_course_info <- function(load_dir,
   
   df <- readr::read_csv(filepath, show_col_types = FALSE)
   
-  keep <- c(
+  required <- c(
     "web-scraper-start-url",
     "course_coordinators_html",
     "course_professors_html",
@@ -355,44 +322,64 @@ get_docnet_course_info <- function(load_dir,
     "course_learning_results_html",
     "course_references_html"
   )
-  missing <- setdiff(keep, names(df))
-  if (length(missing) > 0) stop("Missing expected column(s): ", paste(missing, collapse = ", "))
+  missing_req <- setdiff(required, names(df))
+  if (length(missing_req) > 0) stop("Missing expected column(s): ", paste(missing_req, collapse = ", "))
   
   out <- df |>
-    dplyr::select(dplyr::all_of(keep)) |>
     dplyr::rename(docnet_course_url = `web-scraper-start-url`) |>
     dplyr::mutate(
-      docnet_centre_programme_course_code = paste0(
-        stringr::str_match(docnet_course_url, "centre=([0-9]+)")[, 2], "_",
-        stringr::str_match(docnet_course_url, "ensenyament=([0-9]+)")[, 2], "_",
-        stringr::str_match(docnet_course_url, "assignatura=([0-9]+)")[, 2]
-      )
+      docnet = purrr::map(docnet_course_url, parse_docnet_course_url)
+    ) |>
+    tidyr::unnest_wider(docnet, names_sep = "_") |>
+    dplyr::mutate(
+      docnet_centre_programme_course_code = paste0(docnet_centre_code, "_", docnet_programme_code, "_", docnet_course_code),
+      docnet_modality = docnet_modality
+    ) |>
+    dplyr::select(
+      docnet_course_url,
+      docnet_centre_programme_course_code,
+      docnet_modality,
+      course_coordinators_html,
+      course_professors_html,
+      course_description,
+      course_contents_html,
+      course_competences_html,
+      course_learning_results_html,
+      course_references_html
     )
   
-  clean_course_info_table(
+  out <- clean_course_info_table(
     df = out,
     id_col = "docnet_centre_programme_course_code",
     collapse = collapse,
     col_sep = col_sep
   )
+  
+  out <- fuse_columns_to_text(
+    out,
+    cols = c("course_competences", "course_learning_results"),
+    out  = "course_competences_and_results",
+    labels = c("Competències", "Resultats d'aprenentatge"),
+    drop_inputs = TRUE
+  )
+  
+  out |>
+    dplyr::select(
+      docnet_centre_programme_course_code,
+      dplyr::any_of(course_info_col_order),
+      docnet_course_url
+    ) |>
+    dplyr::as_tibble()
 }
+
+# -------------------------------------------------------------------
+# Loader functions (GUIdO): clean + create competences/results fused column
+# -------------------------------------------------------------------
 
 get_guido_course_info <- function(load_dir,
                                   csv_name = "5_guido_course_info.csv",
                                   collapse = ";\n",
                                   col_sep  = " ") {
-  # Load and normalise GUIdO course info for a single scraping batch.
-  # Output includes only:
-  #   - guido_centre_programme_course_code
-  #   - all cleaned course_* columns (no extra aliases)
-  
-  if (!is.character(load_dir) || length(load_dir) != 1 || !nzchar(load_dir)) {
-    stop("`load_dir` must be a non-empty character scalar.")
-  }
-  if (!is.character(csv_name) || length(csv_name) != 1 || !nzchar(csv_name)) {
-    stop("`csv_name` must be a non-empty character scalar.")
-  }
-  
   filepath <- file.path(load_dir, csv_name)
   if (!file.exists(filepath)) stop("File does not exist: ", filepath)
   
@@ -407,7 +394,6 @@ get_guido_course_info <- function(load_dir,
     "course_contents_html",
     "course_references_html"
   )
-  
   missing <- setdiff(keep, names(df))
   if (length(missing) > 0) stop("Missing expected column(s): ", paste(missing, collapse = ", "))
   
@@ -415,16 +401,15 @@ get_guido_course_info <- function(load_dir,
     dplyr::select(dplyr::all_of(keep)) |>
     dplyr::rename(guido_course_url = `web-scraper-start-url`) |>
     dplyr::mutate(
-      guido_centre_programme_course_code = paste0(
-        stringr::str_match(guido_course_url, "/centres/(\\d+)/")[, 2], "_",
-        stringr::str_match(guido_course_url, "/ensenyaments/(\\d+)/")[, 2], "_",
-        stringr::str_match(guido_course_url, "/assignatures/(\\d+)/")[, 2]
-      )
+      guido = purrr::map(guido_course_url, parse_guido_course_url)
+    ) |>
+    tidyr::unnest_wider(guido, names_sep = "_") |>
+    dplyr::mutate(
+      guido_centre_programme_course_code = paste0(guido_centre_code, "_", guido_programme_code, "_", guido_course_code)
     )
   
   html_cols <- grep("_html$", names(out), value = TRUE)
   
-  # Columns with special handling (do not run through the generic HTML parser).
   special_cols <- c(
     "course_coordinators_html",
     "course_professors_html",
@@ -433,63 +418,54 @@ get_guido_course_info <- function(load_dir,
     "course_contents_html"
   )
   
-  cols_to_clean_generic <- setdiff(
-    unique(c(html_cols, "course_description")),
-    special_cols
-  )
+  cols_to_clean_generic <- setdiff(unique(c(html_cols, "course_description")), special_cols)
   
-  out |>
+  out <- out |>
     dplyr::mutate(
-      # Coordinators/professors: extract <a> text as-is and join with `collapse`.
-      course_coordinators_html = extract_anchor_text_list_from_html(
-        course_coordinators_html, sep_out = collapse, use_cache = TRUE
-      ),
-      course_professors_html = extract_anchor_text_list_from_html(
-        course_professors_html, sep_out = collapse, use_cache = TRUE
-      ),
+      course_coordinators_html = extract_anchor_text_list_from_html(course_coordinators_html, sep_out = collapse, use_cache = TRUE),
+      course_professors_html   = extract_anchor_text_list_from_html(course_professors_html,   sep_out = collapse, use_cache = TRUE),
       
-      # Contents: prefer block extraction; fall back to the generic parser.
       course_contents_html = dplyr::coalesce(
-        extract_block_items_from_html(
-          course_contents_html, xpath = ".//p|.//li", collapse = collapse, use_cache = TRUE
-        ),
-        extract_text_from_html(
-          course_contents_html, collapse = collapse, col_sep = col_sep, use_cache = TRUE
-        )
+        extract_block_items_from_html(course_contents_html, xpath = ".//p|.//li", collapse = collapse, use_cache = TRUE),
+        extract_text_from_html(course_contents_html, collapse = collapse, col_sep = col_sep, use_cache = TRUE)
       ),
       course_contents_html = dplyr::na_if(course_contents_html, ""),
       
-      # Learning results: GUIdO-specific extraction (should de-duplicate items).
-      course_learning_results_html = extract_guido_learning_results_from_html(
-        course_learning_results_html, collapse = collapse, use_cache = TRUE
-      ),
+      course_learning_results_html = extract_guido_learning_results_from_html(course_learning_results_html, collapse = collapse, use_cache = TRUE),
       course_learning_results_html = dplyr::na_if(course_learning_results_html, ""),
       
-      # References: keep clean titles/items.
-      course_references_html = extract_reference_titles_from_html(
-        course_references_html, collapse = collapse, use_cache = TRUE
-      ),
+      course_references_html = extract_reference_titles_from_html(course_references_html, collapse = collapse, use_cache = TRUE),
       course_references_html = dplyr::na_if(course_references_html, ""),
       
-      # Any remaining HTML columns: generic HTML -> text.
-      dplyr::across(
-        dplyr::all_of(cols_to_clean_generic),
-        ~ extract_text_from_html(.x, collapse = collapse, col_sep = col_sep, use_cache = TRUE)
+      dplyr::across(dplyr::all_of(cols_to_clean_generic),
+                    ~ extract_text_from_html(.x, collapse = collapse, col_sep = col_sep, use_cache = TRUE)
       )
     ) |>
-    # Drop the _html suffix (course_*_html -> course_*)
-    dplyr::rename_with(~ sub("_html$", "", .x), .cols = dplyr::all_of(html_cols)) |>
-    # Keep only the course_* family (plus the id).
+    dplyr::rename_with(~ sub("_html$", "", .x), .cols = dplyr::all_of(html_cols))
+  
+  if (!"course_competences" %in% names(out)) out$course_competences <- NA_character_
+  if (!"course_learning_results" %in% names(out)) out$course_learning_results <- NA_character_
+  
+  out <- fuse_columns_to_text(
+    out,
+    cols = c("course_competences", "course_learning_results"),
+    out  = "course_competences_and_results",
+    labels = c("Competències", "Resultats d'aprenentatge"),
+    drop_inputs = TRUE
+  )
+  
+  out |>
     dplyr::select(
       guido_centre_programme_course_code,
-      dplyr::starts_with("course_")
-    )
+      dplyr::any_of(course_info_col_order),
+      guido_course_url
+    ) |>
+    dplyr::as_tibble()
 }
-
-
 
 # -------------------------------------------------------------------
 # High-level entry point: build per-course index from loaded tables.
+# (Step version: course master + URL normalization for DOCnet)
 # -------------------------------------------------------------------
 
 build_guides_index_from_loaded <- function(centres_list,
@@ -498,5 +474,75 @@ build_guides_index_from_loaded <- function(centres_list,
                                            guido_docnet_course_code_map,
                                            docnet_course_info,
                                            guido_course_info) {
-  stop("Implement joins/rowbind logic here.")
+  # 1) Base table (course details) + labels + mapping + canonical course_code + canonical course_url
+  out <- course_details_list |>
+    dplyr::filter(source_system != "External") |>
+    dplyr::left_join(
+      programmes_list |>
+        dplyr::select(dplyr::all_of(c("centre_programme_code", "programme_name"))),
+      by = "centre_programme_code"
+    ) |>
+    dplyr::left_join(
+      centres_list |>
+        dplyr::select(dplyr::all_of(c("centre_code", "centre_name"))),
+      by = "centre_code"
+    ) |>
+    dplyr::left_join(
+      guido_docnet_course_code_map |>
+        dplyr::select(dplyr::all_of(c(
+          "guido_centre_programme_course_code",
+          "docnet_centre_programme_course_code",
+          "docnet_course_url"
+        ))),
+      by = c("centre_programme_course_code" = "guido_centre_programme_course_code")
+    ) |>
+    dplyr::mutate(
+      # canonical join key (DOCnet triple+modality, else GUIdO triple)
+      course_code = dplyr::if_else(
+        source_system == "DOCnet",
+        docnet_centre_programme_course_code,
+        centre_programme_course_code
+      ),
+      # canonical url for traceability (DOCnet rows use mapped docnet url)
+      course_url = dplyr::if_else(
+        source_system == "DOCnet",
+        docnet_course_url,
+        course_url
+      )
+    ) |>
+    dplyr::select(
+      source_system, academic_year,
+      centre_name, programme_name,
+      
+      # codes you want to keep
+      centre_programme_course_code,  # always GUIdO triple
+      course_code,                   # canonical (GUIdO triple or DOCnet triple+modality)
+      
+      # only url you want to keep
+      course_url,
+      
+      # course metadata
+      course_name, course_period, course_type, course_credits
+    ) |>
+    dplyr::as_tibble()
+  
+  # 2) Stack info tables (rowbind) into a single table keyed by course_code
+  guido_info2 <- guido_course_info |>
+    dplyr::transmute(
+      course_code = guido_centre_programme_course_code,
+      dplyr::across(dplyr::starts_with("course_"))
+    )
+  
+  docnet_info2 <- docnet_course_info |>
+    dplyr::transmute(
+      course_code = docnet_centre_programme_course_code,
+      dplyr::across(dplyr::starts_with("course_"))
+    )
+  
+  info_stacked <- dplyr::bind_rows(guido_info2, docnet_info2)
+  
+  # 3) Final join
+  out |>
+    dplyr::left_join(info_stacked, by = "course_code") |>
+    dplyr::as_tibble()
 }
