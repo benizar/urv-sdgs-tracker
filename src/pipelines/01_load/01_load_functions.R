@@ -22,15 +22,6 @@ course_info_col_order <- c(
 )
 
 # -------------------------------------------------------------------
-# Pipeline configuration loader
-# -------------------------------------------------------------------
-
-load_pipeline_config <- function(path = "config/pipeline.yml") {
-  if (!file.exists(path)) stop("Pipeline config file not found: ", path)
-  yaml::read_yaml(path)
-}
-
-# -------------------------------------------------------------------
 # Load directory resolution and data download
 # -------------------------------------------------------------------
 
@@ -545,4 +536,10 @@ build_guides_index_from_loaded <- function(centres_list,
   out |>
     dplyr::left_join(info_stacked, by = "course_code") |>
     dplyr::as_tibble()
+  
+  out |>
+    dplyr::left_join(info_stacked, by = "course_code") |>
+    dplyr::arrange(centre_name, programme_name, course_name) |>
+    dplyr::as_tibble()
+  
 }

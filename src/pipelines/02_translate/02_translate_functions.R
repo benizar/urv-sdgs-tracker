@@ -6,18 +6,54 @@
 #     the translation service is reachable
 #   - call the generic translate_column() helper from src/common
 #     to produce per-column CSV files
-#   - read those CSVs back and attach *_en columns to guides_clean
+#   - read those CSVs back and attach *_en columns to guides_loaded
 #
 # NOTE:
 # - check_translation_service() and rtrim_slash() are defined in
 #   src/common/translation_helpers.R and loaded from _targets.R.
 # - translate_column() is also defined in src/common/translation_helpers.R.
 
+
 # -------------------------------------------------------------------
 # Internal helper: run translate_column() for multiple columns
 # -------------------------------------------------------------------
 
-run_column_translations <- function(guides_clean, translate_cfg) {
+# Helper: build the expected translation CSV path for a given column.
+translation_file_path <- function(translate_cfg, column_name) {
+  output_dir <- translate_cfg$output_dir %||% "sandbox/translations"
+  service    <- tolower(translate_cfg$service %||% "libretranslate")
+  target_lang <- translate_cfg$target_lang %||% "en"
+  
+  file.path(output_dir, paste0(column_name, "-", target_lang, "-", service, ".csv"))
+}
+
+ensure_translation_file <- function(translate_cfg, column_name) {
+  path <- translation_file_path(translate_cfg, column_name)
+  mode <- translate_cfg$mode %||% "auto"
+  
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  
+  if (identical(mode, "reviewer")) {
+    if (!file.exists(path)) {
+      stop(
+        "Reviewer mode is enabled but translation file does not exist: ", path, "\n",
+        "Generate it first with translate.mode = 'auto' and then switch to 'reviewer'.",
+        call. = FALSE
+      )
+    }
+    return(path)
+  }
+  
+  # auto mode: ensure the file exists so targets can track it as a file dependency
+  if (!file.exists(path)) {
+    file.create(path)
+  }
+  
+  path
+}
+
+
+run_column_translations <- function(guides_loaded, translate_cfg) {
   # Ensure the translation helper exists.
   if (!exists("translate_column")) {
     stop(
@@ -39,34 +75,35 @@ run_column_translations <- function(guides_clean, translate_cfg) {
   mode        <- translate_cfg$mode %||% "auto"
   
   # Columns to translate:
-  #   - if translate_cfg$columns is set, use that list
-  #   - otherwise, fall back to the original default columns
-  if (!is.null(translate_cfg$columns)) {
-    columns_cfg <- translate_cfg$columns
-  } else {
-    columns_cfg <- c(
-      "course_name_clean",
-      "description_clean",
-      "contents_clean",
-      "competences_learning_results_clean",
-      "references_clean"
+  #   - translate_cfg$columns must be explicitly provided in config
+  columns_cfg <- translate_cfg$columns
+  
+  if (is.null(columns_cfg) || !length(columns_cfg)) {
+    stop(
+      "run_column_translations(): missing `translate: columns:` in config/pipeline.yml.\n\n",
+      "Please specify the columns to translate, e.g.:\n",
+      "translate:\n",
+      "  columns:\n",
+      "    - course_description\n",
+      "    - course_contents\n",
+      "    - course_competences_and_results\n",
+      "    - course_references\n"
     )
   }
   
-  cols_to_translate <- intersect(columns_cfg, names(guides_clean))
+  cols_to_translate <- intersect(columns_cfg, names(guides_loaded))
   
   if (!length(cols_to_translate)) {
-    warning(
-      "No translatable columns found in guides_clean. ",
-      "Expected at least one of: ",
-      paste(columns_cfg, collapse = ", ")
+    stop(
+      "run_column_translations(): none of the columns listed in `translate: columns:` exist in guides_loaded.\n",
+      "Requested: ", paste(columns_cfg, collapse = ", "), "\n",
+      "Available: ", paste(names(guides_loaded), collapse = ", ")
     )
-    return(list())
   }
   
-  if (!"document_number" %in% names(guides_clean)) {
+  if (!"document_number" %in% names(guides_loaded)) {
     stop(
-      "Column 'document_number' not found in guides_clean. ",
+      "Column 'document_number' not found in guides_loaded. ",
       "It is required as an ID for joining translations."
     )
   }
@@ -141,7 +178,7 @@ run_column_translations <- function(guides_clean, translate_cfg) {
     )
     
     translate_column(
-      df          = guides_clean,
+      df          = guides_loaded,
       column      = col,
       source_lang = source_lang,
       target_lang = target_lang,
@@ -180,14 +217,14 @@ run_column_translations <- function(guides_clean, translate_cfg) {
 
 
 # -------------------------------------------------------------------
-# Attach translations to guides_clean
+# Attach translations to guides_loaded
 # -------------------------------------------------------------------
 
-attach_translations_to_guides <- function(guides_clean, translation_dfs) {
-  df <- guides_clean
+attach_translations_to_guides <- function(guides_loaded, translation_dfs) {
+  df <- guides_loaded
   
   if (!length(translation_dfs)) {
-    message("No translations to attach, returning guides_clean unchanged.")
+    message("No translations to attach, returning guides_loaded unchanged.")
     return(df)
   }
   
@@ -213,23 +250,27 @@ attach_translations_to_guides <- function(guides_clean, translation_dfs) {
 # Public entry point for the translation phase (all columns at once)
 # -------------------------------------------------------------------
 
-translate_guides_table <- function(guides_clean, translate_cfg) {
+translate_guides_table <- function(guides_loaded, translate_cfg) {
   if (!isTRUE(translate_cfg$enabled %||% TRUE)) {
     message(
       "Translation disabled in config (translate.enabled = FALSE). ",
-      "Returning guides_clean unchanged."
+      "Returning guides_loaded unchanged."
     )
-    return(guides_clean)
+    return(guides_loaded)
   }
   
+  mode <- translate_cfg$mode %||% "auto"
+  
   # Healthcheck is implemented in the common helper
-  check_translation_service(translate_cfg)
+  if (!identical(mode, "reviewer") && isTRUE(translate_cfg$check_service %||% TRUE)) {
+    check_translation_service(translate_cfg)
+  }
   
   # Translate the selected fields (one CSV per column)
-  translation_dfs <- run_column_translations(guides_clean, translate_cfg)
+  translation_dfs <- run_column_translations(guides_loaded, translate_cfg)
   
-  # Attach *_en columns to the original guides_clean table
-  guides_translated <- attach_translations_to_guides(guides_clean, translation_dfs)
+  # Attach *_en columns to the original guides_loaded table
+  guides_translated <- attach_translations_to_guides(guides_loaded, translation_dfs)
   
   guides_translated
 }
@@ -238,24 +279,47 @@ translate_guides_table <- function(guides_clean, translate_cfg) {
 # Helper: translate a single column (used as a dynamic target)
 # -------------------------------------------------------------------
 
-translate_guides_column <- function(guides_clean, translate_cfg, column_name) {
+translate_guides_column <- function(guides_loaded, translate_cfg, column_name, translation_file = NULL) {
   if (!isTRUE(translate_cfg$enabled %||% TRUE)) {
     message(
       "Translation disabled in config (translate.enabled = FALSE). ",
-      "Returning guides_clean unchanged."
+      "Returning guides_loaded unchanged."
     )
-    return(guides_clean)
+    return(guides_loaded)
   }
-  
-  # Healthcheck is implemented in the common helper
-  check_translation_service(translate_cfg)
   
   # Local copy of the config restricted to a single column
   cfg_single <- translate_cfg
   cfg_single$columns <- column_name
   
-  translation_dfs <- run_column_translations(guides_clean, cfg_single)
-  guides_translated <- attach_translations_to_guides(guides_clean, translation_dfs)
+  # If a file path is provided by targets, force output_dir to match it
+  # and verify naming consistency.
+  if (!is.null(translation_file)) {
+    cfg_single$output_dir <- dirname(translation_file)
+    
+    expected <- translation_file_path(cfg_single, column_name)
+    if (!identical(
+      normalizePath(expected, winslash = "/", mustWork = FALSE),
+      normalizePath(translation_file, winslash = "/", mustWork = FALSE)
+    )) {
+      stop(
+        "translation_file mismatch for column '", column_name, "'.\n",
+        "Expected: ", expected, "\n",
+        "Got:      ", translation_file,
+        call. = FALSE
+      )
+    }
+  }
+  
+  mode <- cfg_single$mode %||% "auto"
+  
+  # Healthcheck only when it makes sense (auto mode) and if enabled.
+  if (!identical(mode, "reviewer") && isTRUE(cfg_single$check_service %||% TRUE)) {
+    check_translation_service(cfg_single)
+  }
+  
+  translation_dfs <- run_column_translations(guides_loaded, cfg_single)
+  guides_translated <- attach_translations_to_guides(guides_loaded, translation_dfs)
   
   guides_translated
 }

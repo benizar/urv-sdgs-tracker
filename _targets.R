@@ -30,7 +30,7 @@ common_dir <- "src/common"
 
 if (dir.exists(common_dir)) {
   purrr::walk(
-    list.files(common_dir, pattern = "[.][Rr]$", full.names = TRUE),
+    sort(list.files(common_dir, pattern = "[.][Rr]$", full.names = TRUE)),
     source
   )
 }
@@ -53,7 +53,7 @@ pipeline_files <- unlist(lapply(
   pipeline_dirs,
   function(d) {
     if (dir.exists(d)) {
-      list.files(d, pattern = "[.][Rr]$", full.names = TRUE)
+      sort(list.files(d, pattern = "[.][Rr]$", full.names = TRUE))
     } else {
       character(0)
     }
@@ -74,5 +74,5 @@ list(
   # targets_validation,   # 04_validation/04_validation_targets.R
   # targets_export,       # 05_export/05_export_targets.R
   # targets_analysis      # 06_analysis/06_analysis_targets.R
-  targets_logging       # 99_analysis/99_logging_targets.R
+  targets_logging       # 99_logging/99_logging_targets.R
 )

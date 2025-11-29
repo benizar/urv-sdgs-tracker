@@ -10,62 +10,90 @@ targets_translate <- list(
     pipeline_config$translate
   ),
   
-  # Vector of column names to translate, taken from translate_config$columns
-  # or falling back to the default set.
+  # Column names to translate must be explicitly provided in config.
   tar_target(
     translate_column_ids,
     {
       cols <- translate_config$columns
+      
       if (is.null(cols) || !length(cols)) {
-        cols <- c(
-          "course_name_clean",
-          "description_clean",
-          "contents_clean",
-          "competences_learning_results_clean",
-          "references_clean"
+        stop(
+          "Missing `translate: columns:` in config/pipeline.yml.\n\n",
+          "Please specify the columns to translate, e.g.:\n",
+          "translate:\n",
+          "  columns:\n",
+          "    - course_description\n",
+          "    - course_contents\n",
+          "    - course_competences_and_results\n",
+          "    - course_references\n",
+          call. = FALSE
         )
       }
+      
+      if (!"document_number" %in% names(guides_loaded)) {
+        stop("`guides_loaded` must contain `document_number` before translation.", call. = FALSE)
+      }
+      
+      cols <- unique(as.character(cols))
+      
+      missing_in_data <- setdiff(cols, names(guides_loaded))
+      if (length(missing_in_data) > 0) {
+        stop(
+          "The following columns listed in `translate: columns:` do not exist in `guides_loaded`: ",
+          paste(missing_in_data, collapse = ", "),
+          "\n\nAvailable columns are:\n",
+          paste(names(guides_loaded), collapse = ", "),
+          call. = FALSE
+        )
+      }
+      
       cols
     }
   ),
   
-  # One dynamic branch per column: each branch returns guides_clean
-  # with the corresponding *_en column added.
+  # One file target per column. Declared as `format = "file"` so edits to the CSV
+  # (reviewer mode) automatically invalidate downstream targets.
+  tar_target(
+    translation_file,
+    ensure_translation_file(translate_config, column_name = translate_column_ids),
+    pattern = map(translate_column_ids),
+    format = "file"
+  ),
+  
+  # One dynamic branch per column: adds the corresponding *_en column.
+  # We map over `translation_file` too, so the branch depends on the on-disk CSV.
   tar_target(
     guides_translated_column,
     translate_guides_column(
-      guides_clean,
+      guides_loaded,
       translate_config,
-      column_name = translate_column_ids
+      column_name = translate_column_ids,
+      translation_file = translation_file
     ),
-    pattern = map(translate_column_ids),
+    pattern = map(translate_column_ids, translation_file),
     iteration = "list"
   ),
   
-  # Final merged table: start from guides_clean and join the *_en columns
-  # from each dynamic branch.
+  # Merge the translated columns back into a single table.
   tar_target(
     guides_translated,
     {
       Reduce(
         function(df_acc, df_branch) {
           if (!"document_number" %in% names(df_branch)) {
-            stop("Branch data frame has no 'document_number' column.")
+            stop("Branch data frame has no 'document_number' column.", call. = FALSE)
           }
           
-          # Only bring the new translated columns from this branch
           new_cols <- setdiff(names(df_branch), names(df_acc))
-          if (!length(new_cols)) {
-            return(df_acc)
-          }
+          if (!length(new_cols)) return(df_acc)
           
-          df_to_join <- df_branch %>%
+          df_to_join <- df_branch |>
             dplyr::select(document_number, dplyr::all_of(new_cols))
           
           dplyr::left_join(df_acc, df_to_join, by = "document_number")
         },
         guides_translated_column,
-        init = guides_clean
+        init = guides_loaded
       )
     }
   )

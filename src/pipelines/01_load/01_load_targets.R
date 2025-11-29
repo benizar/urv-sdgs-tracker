@@ -49,15 +49,24 @@ targets_load <- list(
   ),
   
   # Master table for this phase (one data.frame).
+  # IMPORTANT: downstream phases expect a `document_number` id column.
+  # For now we use the canonical `course_code` as `document_number`.
   tar_target(
     guides_loaded,
-    build_guides_index_from_loaded(
-      centres_list,
-      programmes_list,
-      course_details_list,
-      guido_docnet_course_code_map,
-      docnet_course_info,
-      guido_course_info
-    )
+    {
+      df <- build_guides_index_from_loaded(
+        centres_list,
+        programmes_list,
+        course_details_list,
+        guido_docnet_course_code_map,
+        docnet_course_info,
+        guido_course_info
+      )
+      
+      dplyr::mutate(
+        df,
+        document_number = as.character(course_code)
+      )
+    }
   )
 )

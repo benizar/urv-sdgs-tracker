@@ -1,4 +1,4 @@
-# File: src/pipelines/03_sdg/03_detect_sdg_functions.R
+# File: src/pipelines/03_detect_sdg/03_detect_sdg_functions.R
 #
 # SDG detection helpers for the URV SDGs tracker pipeline.
 #
@@ -33,54 +33,23 @@
 build_sdg_input <- function(guides_translated, sdg_cfg) {
   combine_groups <- sdg_cfg$combine_groups
   
-  # ------------------------------------------------------------------
-  # Fallback: no combine_groups -> behave like a single "all_text" section
-  # ------------------------------------------------------------------
   if (is.null(combine_groups) || !length(combine_groups)) {
-    message(
-      "build_sdg_input(): no combine_groups in config, ",
-      "falling back to single 'all_text' section."
+    stop(
+      "build_sdg_input(): missing `sdg_detection: combine_groups:` in config/pipeline.yml.\n\n",
+      "Please define at least one group, e.g.:\n",
+      "sdg_detection:\n",
+      "  combine_groups:\n",
+      "    - id: \"course_info\"\n",
+      "      prefix: \"Course information: \"\n",
+      "      columns:\n",
+      "        - course_description_en\n",
+      "        - course_contents_en\n",
+      call. = FALSE
     )
-    
-    # Default *_en columns in the translated table
-    default_cols <- c(
-      "course_name_en",
-      "description_en",
-      "contents_en",
-      "competences_learning_results_en",
-      "references_en"
-    )
-    
-    cols_existing <- intersect(default_cols, names(guides_translated))
-    if (!length(cols_existing)) {
-      stop(
-        "build_sdg_input(): no translatable columns found. ",
-        "Expected at least one of: ",
-        paste(default_cols, collapse = ", ")
-      )
-    }
-    
-    tmp <- guides_translated |>
-      dplyr::select(document_number, dplyr::all_of(cols_existing))
-    
-    text_vec <- apply(
-      tmp[, cols_existing, drop = FALSE],
-      1,
-      function(row) {
-        pieces <- trimws(as.character(row))
-        pieces <- pieces[!is.na(pieces) & pieces != ""]
-        paste(pieces, collapse = " ||| ")
-      }
-    )
-    
-    sdg_input <- tibble::tibble(
-      document_number = guides_translated$document_number,
-      section         = "all_text",
-      text            = text_vec
-    ) |>
-      dplyr::filter(!is.na(text) & text != "")
-    
-    return(sdg_input)
+  }
+  
+  if (!"document_number" %in% names(guides_translated)) {
+    stop("build_sdg_input(): `guides_translated` must contain `document_number`.", call. = FALSE)
   }
   
   # ------------------------------------------------------------------
@@ -96,32 +65,29 @@ build_sdg_input <- function(guides_translated, sdg_cfg) {
     if (is.null(id) || !nzchar(id)) {
       stop(
         "build_sdg_input(): combine_groups entries must include ",
-        "a non-empty 'id' field."
+        "a non-empty 'id' field.",
+        call. = FALSE
       )
     }
     
     if (!length(cols)) {
-      warning(
+      stop(
         "build_sdg_input(): combine_groups entry '", id,
-        "' has no columns; skipping."
+        "' has no columns.",
+        call. = FALSE
       )
-      next
     }
     
     cols_existing <- intersect(cols, names(guides_translated))
     missing_cols  <- setdiff(cols, cols_existing)
     
     if (length(missing_cols)) {
-      warning(
+      stop(
         "build_sdg_input(): combine_groups '", id,
         "' refers to missing columns: ",
         paste(missing_cols, collapse = ", "),
-        ". They will be ignored."
+        call. = FALSE
       )
-    }
-    
-    if (!length(cols_existing)) {
-      next
     }
     
     tmp <- guides_translated |>
@@ -162,7 +128,8 @@ build_sdg_input <- function(guides_translated, sdg_cfg) {
     stop(
       "build_sdg_input(): no non-empty text found for any combine_groups. ",
       "Check that the *_en columns referenced in combine_groups exist ",
-      "and are not all empty."
+      "and are not all empty.",
+      call. = FALSE
     )
   }
   
@@ -179,6 +146,18 @@ run_text2sdg_detection <- function(sdg_input, sdg_cfg) {
   verbose <- sdg_cfg$verbose %||% FALSE
   
   method <- tolower(method)
+  
+  if (!nrow(sdg_input)) {
+    return(
+      tibble::tibble(
+        document_number = character(0),
+        section         = character(0),
+        system          = character(0),
+        sdg             = character(0),
+        document        = integer(0)
+      )
+    )
+  }
   
   if (identical(method, "systems")) {
     systems <- sdg_cfg$systems %||% c("Aurora", "Elsevier", "Auckland", "SIRIS")
@@ -203,15 +182,24 @@ run_text2sdg_detection <- function(sdg_input, sdg_cfg) {
       verbose = verbose
     )
     
+    # Ensure a 'system' column exists downstream
+    if (!"system" %in% names(hits)) {
+      hits$system <- "Ensemble"
+    }
+    
   } else {
-    stop("run_text2sdg_detection(): unknown method in config: ", method)
+    stop("run_text2sdg_detection(): unknown method in config: ", method, call. = FALSE)
   }
   
   if (!nrow(hits)) {
     message("run_text2sdg_detection(): text2sdg returned 0 hits.")
-    hits$document_number <- integer(0)
+    hits$document_number <- character(0)
     hits$section         <- character(0)
     return(hits)
+  }
+  
+  if (!"document" %in% names(hits)) {
+    stop("run_text2sdg_detection(): text2sdg output does not include 'document' column.", call. = FALSE)
   }
   
   doc_index <- as.integer(hits$document)
@@ -221,13 +209,14 @@ run_text2sdg_detection <- function(sdg_input, sdg_cfg) {
   if (any(is.na(doc_index)) ||
       any(doc_index < 1L) ||
       any(doc_index > length(doc_map))) {
-    stop("run_text2sdg_detection(): invalid 'document' indices in hits.")
+    stop("run_text2sdg_detection(): invalid 'document' indices in hits.", call. = FALSE)
   }
   
-  hits %>%
+  hits |>
     dplyr::mutate(
       document_number = doc_map[doc_index],
-      section         = sec_map[doc_index]
+      section         = sec_map[doc_index],
+      sdg             = as.character(sdg)
     )
 }
 
@@ -239,7 +228,7 @@ summarise_sdg_hits_long <- function(hits) {
   if (!nrow(hits)) {
     return(
       tibble::tibble(
-        document_number = integer(0),
+        document_number = character(0),
         section         = character(0),
         system          = character(0),
         sdg             = character(0),
@@ -250,23 +239,30 @@ summarise_sdg_hits_long <- function(hits) {
   }
   
   if (!"document_number" %in% names(hits)) {
-    stop("summarise_sdg_hits_long(): 'document_number' column is required.")
+    stop("summarise_sdg_hits_long(): 'document_number' column is required.", call. = FALSE)
   }
   if (!"section" %in% names(hits)) {
-    stop("summarise_sdg_hits_long(): 'section' column is required.")
+    stop("summarise_sdg_hits_long(): 'section' column is required.", call. = FALSE)
+  }
+  if (!"system" %in% names(hits)) {
+    stop("summarise_sdg_hits_long(): 'system' column is required.", call. = FALSE)
+  }
+  if (!"sdg" %in% names(hits)) {
+    stop("summarise_sdg_hits_long(): 'sdg' column is required.", call. = FALSE)
   }
   
-  hits %>%
+  hits |>
+    dplyr::mutate(sdg = as.character(sdg)) |>
     dplyr::group_by(
       document_number,
       section,
       system,
       sdg
-    ) %>%
+    ) |>
     dplyr::summarise(
       n_hits = dplyr::n(),
       .groups = "drop"
-    ) %>%
+    ) |>
     dplyr::mutate(
       sdg_num = stringr::str_extract(sdg, "\\d+")
     )
@@ -280,7 +276,7 @@ summarise_sdg_hits_wide <- function(sdg_long, sdg_cfg) {
   if (!nrow(sdg_long)) {
     return(
       tibble::tibble(
-        document_number = integer(0)
+        document_number = character(0)
       )
     )
   }
@@ -288,7 +284,7 @@ summarise_sdg_hits_wide <- function(sdg_long, sdg_cfg) {
   agg_mode <- sdg_cfg$aggregate$mode     %||% "counts"
   min_hits <- sdg_cfg$aggregate$min_hits %||% 1L
   
-  sdg_long %>%
+  sdg_long |>
     dplyr::mutate(
       value = if (identical(agg_mode, "binary")) {
         as.integer(n_hits >= min_hits)
@@ -301,12 +297,12 @@ summarise_sdg_hits_wide <- function(sdg_long, sdg_cfg) {
         system, "_",
         section
       )
-    ) %>%
+    ) |>
     dplyr::select(
       document_number,
       colname,
       value
-    ) %>%
+    ) |>
     tidyr::pivot_wider(
       id_cols      = document_number,
       names_from   = colname,
@@ -320,6 +316,6 @@ summarise_sdg_hits_wide <- function(sdg_long, sdg_cfg) {
 # -------------------------------------------------------------------
 
 attach_sdg_to_guides <- function(guides_translated, sdg_hits_wide) {
-  guides_translated %>%
+  guides_translated |>
     dplyr::left_join(sdg_hits_wide, by = "document_number")
 }
