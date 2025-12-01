@@ -2,17 +2,13 @@
 # Translation helpers for the URV SDGs tracker pipeline.
 #
 # Responsibilities:
-#   - call the common check_translation_service() helper to ensure
-#     the translation service is reachable
 #   - call the generic translate_column() helper from src/common
 #     to produce per-column CSV files
 #   - read those CSVs back and attach *_en columns to guides_loaded
 #
 # NOTE:
-# - check_translation_service() and rtrim_slash() are defined in
-#   src/common/translation_helpers.R and loaded from _targets.R.
+# - rtrim_slash() is defined in src/common/translation_helpers.R and loaded from _targets.R.
 # - translate_column() is also defined in src/common/translation_helpers.R.
-
 
 # -------------------------------------------------------------------
 # Internal helper: run translate_column() for multiple columns
@@ -20,8 +16,8 @@
 
 # Helper: build the expected translation CSV path for a given column.
 translation_file_path <- function(translate_cfg, column_name) {
-  output_dir <- translate_cfg$output_dir %||% "sandbox/translations"
-  service    <- tolower(translate_cfg$service %||% "libretranslate")
+  output_dir  <- translate_cfg$output_dir %||% "sandbox/translations"
+  service     <- tolower(translate_cfg$service %||% "libretranslate")
   target_lang <- translate_cfg$target_lang %||% "en"
   
   file.path(output_dir, paste0(column_name, "-", target_lang, "-", service, ".csv"))
@@ -52,7 +48,6 @@ ensure_translation_file <- function(translate_cfg, column_name) {
   path
 }
 
-
 run_column_translations <- function(guides_loaded, translate_cfg) {
   # Ensure the translation helper exists.
   if (!exists("translate_column")) {
@@ -61,6 +56,9 @@ run_column_translations <- function(guides_loaded, translate_cfg) {
       "Make sure src/common/translation_helpers.R is sourced by _targets.R."
     )
   }
+  
+  pause_col <- as.numeric(translate_cfg$pause_between_columns_sec %||% 0)
+  if (is.na(pause_col) || pause_col < 0) pause_col <- 0
   
   output_dir <- translate_cfg$output_dir %||% "sandbox/translations"
   if (!dir.exists(output_dir)) {
@@ -121,10 +119,9 @@ run_column_translations <- function(guides_loaded, translate_cfg) {
   # ------------------------------------------------------------------
   if (identical(mode, "reviewer")) {
     for (col in cols_to_translate) {
-      out_file <- file.path(
-        output_dir,
-        paste0(col, "-", target_lang, "-", service, ".csv")
-      )
+      if (pause_col > 0) Sys.sleep(pause_col)
+      
+      out_file <- translation_file_path(translate_cfg, col)
       
       if (!file.exists(out_file)) {
         stop(
@@ -162,10 +159,9 @@ run_column_translations <- function(guides_loaded, translate_cfg) {
   # Auto mode: call the translation service and (re)create CSVs
   # ------------------------------------------------------------------
   for (col in cols_to_translate) {
-    out_file <- file.path(
-      output_dir,
-      paste0(col, "-", target_lang, "-", service, ".csv")
-    )
+    if (pause_col > 0) Sys.sleep(pause_col)
+    
+    out_file <- translation_file_path(translate_cfg, col)
     
     if (file.exists(out_file)) {
       message("Removing existing translation file: ", out_file)
@@ -215,7 +211,6 @@ run_column_translations <- function(guides_loaded, translate_cfg) {
   translation_dfs
 }
 
-
 # -------------------------------------------------------------------
 # Attach translations to guides_loaded
 # -------------------------------------------------------------------
@@ -257,13 +252,6 @@ translate_guides_table <- function(guides_loaded, translate_cfg) {
       "Returning guides_loaded unchanged."
     )
     return(guides_loaded)
-  }
-  
-  mode <- translate_cfg$mode %||% "auto"
-  
-  # Healthcheck is implemented in the common helper
-  if (!identical(mode, "reviewer") && isTRUE(translate_cfg$check_service %||% TRUE)) {
-    check_translation_service(translate_cfg)
   }
   
   # Translate the selected fields (one CSV per column)
@@ -309,13 +297,6 @@ translate_guides_column <- function(guides_loaded, translate_cfg, column_name, t
         call. = FALSE
       )
     }
-  }
-  
-  mode <- cfg_single$mode %||% "auto"
-  
-  # Healthcheck only when it makes sense (auto mode) and if enabled.
-  if (!identical(mode, "reviewer") && isTRUE(cfg_single$check_service %||% TRUE)) {
-    check_translation_service(cfg_single)
   }
   
   translation_dfs <- run_column_translations(guides_loaded, cfg_single)

@@ -8,11 +8,17 @@ tar_option_set(
   packages = c(
     # core workflow
     "tidyverse",
+    "readr",
     "jsonlite",
     "openxlsx",
     "yaml",
     "xml2",
     "stringi",
+    
+    # translation
+    "httr",
+    "data.table",
+    
     # text / SDG
     "text2sdg",
     "corpustools",
@@ -26,14 +32,20 @@ tar_option_set(
 # -------------------------------------------------------------------
 # 1) Load common, reusable helpers
 # -------------------------------------------------------------------
-common_dir <- "src/common"
+common_dirs <- c("src/common", "src/commons")
 
-if (dir.exists(common_dir)) {
-  purrr::walk(
-    sort(list.files(common_dir, pattern = "[.][Rr]$", full.names = TRUE)),
-    source
-  )
-}
+common_files <- unlist(lapply(
+  common_dirs,
+  function(d) {
+    if (dir.exists(d)) {
+      sort(list.files(d, pattern = "[.][Rr]$", full.names = TRUE))
+    } else {
+      character(0)
+    }
+  }
+))
+
+if (length(common_files)) tar_source(common_files)
 
 # -------------------------------------------------------------------
 # 2) Load project-specific pipeline code (functions + targets)
@@ -71,8 +83,5 @@ list(
   targets_load,         # 01_load/01_load_targets.R
   targets_translate,    # 02_translate/02_translate_targets.R
   targets_sdg,          # 03_detect_sdg/03_detect_sdg_targets.R
-  # targets_validation,   # 04_validation/04_validation_targets.R
-  # targets_export,       # 05_export/05_export_targets.R
-  # targets_analysis      # 06_analysis/06_analysis_targets.R
   targets_logging       # 99_logging/99_logging_targets.R
 )

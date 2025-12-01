@@ -249,8 +249,18 @@ clean_stale_targets_in_env <- function(remove = TRUE, restrict_to = NULL) {
 # Clean helpers (store invalidation)
 # -------------------------------------------------------------------
 
+# Disable interactive "Delete .targets?" prompt only for the scope of expr.
+with_tar_ask_disabled <- function(expr) {
+  old <- Sys.getenv("TAR_ASK", unset = NA_character_)
+  Sys.setenv(TAR_ASK = "false")
+  on.exit({
+    if (is.na(old)) Sys.unsetenv("TAR_ASK") else Sys.setenv(TAR_ASK = old)
+  }, add = TRUE)
+  force(expr)
+}
+
 clean_all_targets <- function() {
-  targets::tar_destroy(destroy = "all")
+  with_tar_ask_disabled(targets::tar_destroy(destroy = "all"))
   invisible(TRUE)
 }
 
@@ -295,7 +305,7 @@ clean_from_targets <- function(target_names) {
     "clean_from_targets(): neither tar_invalidate() nor tar_delete() is available in this {targets} version.\n",
     "Falling back to tar_destroy(destroy = 'meta'), which invalidates broadly."
   )
-  targets::tar_destroy(destroy = "meta")
+  with_tar_ask_disabled(targets::tar_destroy(destroy = "meta"))
   invisible(TRUE)
 }
 

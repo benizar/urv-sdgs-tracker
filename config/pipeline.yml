@@ -63,6 +63,17 @@ translate:
   #                 (use this after manually reviewing/editing translations)
   mode: "auto"
 
+  # IMPORTANT:
+  # By default ("overwrite: false"), auto mode uses a "resume" strategy:
+  #   - if the translation CSV already exists, it is NOT deleted
+  #   - only missing ids are translated and appended to the same CSV
+  # This prevents accidental re-translation (and CSV deletion) when downstream
+  # targets (e.g. sdg_detection) trigger a rebuild.
+  #
+  # Set overwrite: true ONLY when you want to delete existing CSVs and
+  # force a full re-translation from scratch.
+  overwrite: false
+
   # Translation backend used in "auto" mode.
   # Keep consistent with the running services (docker-compose).
   service: "libretranslate"
@@ -73,7 +84,7 @@ translate:
 
   # Parallelisation settings for translation batches.
   max_cores: 4
-  batch_size: 200
+  batch_size: 50
 
   # Folder where per-column translation CSVs are created/read.
   # Files are named: <column>-<target_lang>-<service>.csv

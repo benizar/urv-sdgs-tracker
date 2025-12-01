@@ -142,12 +142,20 @@ translate_column <- function(
   if (!file.exists(file_path)) {
     data.table::fwrite(
       data.frame(
-        id                = character(),
-        original          = character(),
-        detected_language = character(),
-        confidence        = numeric(),
-        translated_text   = character(),
-        stringsAsFactors  = FALSE
+        id                    = character(),
+        original              = character(),
+        detected_language     = character(),
+        confidence            = numeric(),
+        translated_text       = character(),
+        difficulty            = character(),
+        split_strategy        = character(),
+        parts_total           = integer(),
+        failed_parts          = integer(),
+        failed_parts_ratio    = numeric(),
+        sentences_total       = integer(),
+        failed_sentences      = integer(),
+        failed_sentences_ratio= numeric(),
+        stringsAsFactors      = FALSE
       ),
       file   = file_path,
       append = FALSE
@@ -395,33 +403,6 @@ translate_column <- function(
   }
   
   # ------------------------------------------------------------------
-  # Helper: translate text sentence by sentence (second attempt)
-  # ------------------------------------------------------------------
-  translate_by_sentences <- function(text, source_lang, target_lang, service) {
-    if (is.null(text) || is.na(text) || !nzchar(text)) {
-      return("Translation Error")
-    }
-    
-    parts <- unlist(strsplit(text, "(?<=[.!?])\\s+", perl = TRUE))
-    parts <- trimws(parts)
-    parts <- parts[nzchar(parts)]
-    
-    if (!length(parts)) {
-      return("Translation Error")
-    }
-    
-    translated_parts <- vapply(
-      parts,
-      FUN.VALUE = character(1),
-      FUN = function(p) {
-        translate_text(p, source_lang, target_lang, service)
-      }
-    )
-    
-    paste(translated_parts, collapse = " ")
-  }
-  
-  # ------------------------------------------------------------------
   # Suspicious-output detection (for retries)
   # ------------------------------------------------------------------
   is_suspicious_translation <- function(txt) {
@@ -460,6 +441,191 @@ translate_column <- function(
   }
   
   # ------------------------------------------------------------------
+  # Split helpers (tolerant fallback)
+  # ------------------------------------------------------------------
+  split_semicolons <- function(x) {
+    if (is.null(x) || is.na(x)) return(character(0))
+    parts <- unlist(strsplit(x, "\\s*;\\s*", perl = TRUE))
+    parts <- trimws(parts)
+    parts[nzchar(parts)]
+  }
+  
+  split_lines <- function(x) {
+    if (is.null(x) || is.na(x)) return(character(0))
+    parts <- unlist(strsplit(x, "\\r?\\n+", perl = TRUE))
+    parts <- trimws(parts)
+    parts[nzchar(parts)]
+  }
+  
+  split_sentences <- function(x) {
+    if (is.null(x) || is.na(x)) return(character(0))
+    s <- unlist(strsplit(x, "(?<=[.!?])\\s+", perl = TRUE))
+    s <- trimws(s)
+    s[nzchar(s)]
+  }
+  
+  choose_semicolon_joiner <- function(original_text) {
+    if (is.null(original_text) || is.na(original_text)) return("; ")
+    if (grepl(";\\s*\\n", original_text, perl = TRUE)) ";\n" else "; "
+  }
+  
+  # ------------------------------------------------------------------
+  # Tolerant fallback: partial translation + counters/ratios
+  # Order:
+  #   full text -> semicolons -> lines -> sentences
+  # Failed pieces are kept in ORIGINAL form (not "Translation Error").
+  # ------------------------------------------------------------------
+  translate_tolerant <- function(text, source_lang, target_lang, service, first_attempt = NULL) {
+    out <- list(
+      translated_text        = NA_character_,
+      difficulty             = "none",
+      split_strategy         = "full",
+      parts_total            = 1L,
+      failed_parts           = 0L,
+      failed_parts_ratio     = 0,
+      sentences_total        = 0L,
+      failed_sentences       = 0L,
+      failed_sentences_ratio = 0
+    )
+    
+    if (is.null(text) || is.na(text) || !nzchar(trimws(text))) {
+      out$translated_text <- NA_character_
+      return(out)
+    }
+    
+    # 1) Full attempt (re-use if given)
+    tr_full <- if (!is.null(first_attempt)) first_attempt else translate_text(text, source_lang, target_lang, service)
+    full_ok <- !identical(tr_full, "Translation Error") && !is_suspicious_translation(tr_full)
+    
+    if (full_ok) {
+      out$translated_text <- tr_full
+      out$difficulty <- "none"
+      out$split_strategy <- "full"
+      out$parts_total <- 1L
+      return(out)
+    }
+    
+    # Semicolon level
+    parts <- split_semicolons(text)
+    if (!length(parts)) parts <- trimws(text)
+    
+    parts <- parts[nzchar(parts)]
+    if (!length(parts)) {
+      out$translated_text <- "Translation Error"
+      out$difficulty <- "hard"
+      out$split_strategy <- "full"
+      return(out)
+    }
+    
+    out$parts_total <- as.integer(length(parts))
+    sem_joiner <- choose_semicolon_joiner(text)
+    
+    part_out <- character(length(parts))
+    part_failed <- logical(length(parts))
+    any_translation_success <- FALSE
+    
+    used_semicolon <- length(parts) > 1L
+    used_lines <- FALSE
+    used_sentences <- FALSE
+    
+    for (i in seq_along(parts)) {
+      p <- parts[[i]]
+      
+      tr_p <- translate_text(p, source_lang, target_lang, service)
+      ok_p <- !identical(tr_p, "Translation Error") && !is_suspicious_translation(tr_p)
+      
+      if (ok_p) {
+        part_out[[i]] <- tr_p
+        any_translation_success <- TRUE
+        next
+      }
+      
+      # Lines fallback (only for this part)
+      used_lines <- TRUE
+      lines <- split_lines(p)
+      if (!length(lines)) lines <- p
+      
+      line_out <- character(length(lines))
+      line_had_fail <- logical(length(lines))
+      
+      for (j in seq_along(lines)) {
+        ln <- lines[[j]]
+        
+        tr_ln <- translate_text(ln, source_lang, target_lang, service)
+        ok_ln <- !identical(tr_ln, "Translation Error") && !is_suspicious_translation(tr_ln)
+        
+        if (ok_ln) {
+          line_out[[j]] <- tr_ln
+          any_translation_success <- TRUE
+          next
+        }
+        
+        # Sentence fallback (only for this line)
+        used_sentences <- TRUE
+        sents <- split_sentences(ln)
+        if (!length(sents)) sents <- ln
+        
+        out$sentences_total <- out$sentences_total + as.integer(length(sents))
+        
+        sent_out <- character(length(sents))
+        any_fail_here <- FALSE
+        
+        for (k in seq_along(sents)) {
+          s <- sents[[k]]
+          tr_s <- translate_text(s, source_lang, target_lang, service)
+          ok_s <- !identical(tr_s, "Translation Error") && !is_suspicious_translation(tr_s)
+          
+          if (ok_s) {
+            sent_out[[k]] <- tr_s
+            any_translation_success <- TRUE
+          } else {
+            sent_out[[k]] <- s # keep original
+            out$failed_sentences <- out$failed_sentences + 1L
+            any_fail_here <- TRUE
+          }
+        }
+        
+        line_out[[j]] <- paste(sent_out, collapse = " ")
+        line_had_fail[[j]] <- any_fail_here
+      }
+      
+      # Rebuild part with line breaks (preserve list-like structure)
+      part_out[[i]] <- paste(line_out, collapse = "\n")
+      part_failed[[i]] <- any(line_had_fail)
+    }
+    
+    out$translated_text <- paste(part_out, collapse = if (used_semicolon) sem_joiner else "\n")
+    
+    out$failed_parts <- as.integer(sum(part_failed))
+    out$failed_parts_ratio <- if (out$parts_total > 0L) out$failed_parts / out$parts_total else 0
+    out$failed_sentences_ratio <- if (out$sentences_total > 0L) out$failed_sentences / out$sentences_total else 0
+    
+    out$split_strategy <- paste(
+      c(
+        if (used_semicolon) "semicolon" else NULL,
+        if (used_lines)     "line"      else NULL,
+        if (used_sentences) "sentence"  else NULL
+      ),
+      collapse = ">"
+    )
+    if (!nzchar(out$split_strategy)) out$split_strategy <- "full"
+    
+    # Difficulty:
+    # - "hard": no successful translation at all or lots of failures
+    # - "partial": some translation but some failures
+    # - "none": everything translated via splitting (no failures left)
+    if (!isTRUE(any_translation_success)) {
+      out$difficulty <- "hard"
+    } else if (out$failed_parts > 0L || out$failed_sentences > 0L) {
+      out$difficulty <- "partial"
+    } else {
+      out$difficulty <- "none"
+    }
+    
+    out
+  }
+  
+  # ------------------------------------------------------------------
   # Batch processing (sequential)
   # ------------------------------------------------------------------
   n <- nrow(df)
@@ -482,9 +648,8 @@ translate_column <- function(
     " batches using service = ", service, "."
   )
   
-  # retry parameters for suspicious outputs
-  max_retry_suspicious <- 2L      # total attempts: 1 full text + 1 by sentences
-  retry_sleep_sec      <- 5
+  # retry parameters for suspicious outputs / hard errors
+  retry_sleep_sec <- 5
   
   batch_counter <- 0L
   
@@ -501,12 +666,20 @@ translate_column <- function(
       # Skip empty / missing text
       if (is.null(text) || is.na(text) || trimws(text) == "") {
         return(data.frame(
-          id                = row_id,
-          original          = NA_character_,
-          detected_language = NA_character_,
-          confidence        = NA_real_,
-          translated_text   = NA_character_,
-          stringsAsFactors  = FALSE
+          id                    = row_id,
+          original              = NA_character_,
+          detected_language     = NA_character_,
+          confidence            = NA_real_,
+          translated_text       = NA_character_,
+          difficulty            = NA_character_,
+          split_strategy         = NA_character_,
+          parts_total           = NA_integer_,
+          failed_parts          = NA_integer_,
+          failed_parts_ratio    = NA_real_,
+          sentences_total       = NA_integer_,
+          failed_sentences      = NA_integer_,
+          failed_sentences_ratio= NA_real_,
+          stringsAsFactors      = FALSE
         ))
       }
       
@@ -527,55 +700,82 @@ translate_column <- function(
         source_lang
       }
       
-      # If detection fails and source_lang is auto, flag as error (no retry)
-      if (is.null(final_source_lang) ||
-          is.na(final_source_lang)   ||
-          final_source_lang == "") {
-        translated_text <- "Translation Error"
-      } else {
+      # Defaults
+      translated_text <- "Translation Error"
+      difficulty <- "hard"
+      split_strategy <- "full"
+      parts_total <- 1L
+      failed_parts <- 1L
+      failed_parts_ratio <- 1
+      sentences_total <- 0L
+      failed_sentences <- 0L
+      failed_sentences_ratio <- 0
+      
+      if (!is.null(final_source_lang) && !is.na(final_source_lang) && nzchar(final_source_lang)) {
         # First attempt: full text
-        translated_text <- translate_text(
+        first <- translate_text(
           text_for_translate,
           final_source_lang,
           target_lang,
           service
         )
         
-        if (is_suspicious_translation(translated_text)) {
-          message(
-            "Suspicious translation for id = ", row_id,
-            " (attempt 1), retrying by sentences in ",
-            retry_sleep_sec, " seconds..."
-          )
+        ok_first <- !identical(first, "Translation Error") && !is_suspicious_translation(first)
+        
+        if (ok_first) {
+          translated_text <- first
+          difficulty <- "none"
+          split_strategy <- "full"
+          parts_total <- 1L
+          failed_parts <- 0L
+          failed_parts_ratio <- 0
+          sentences_total <- 0L
+          failed_sentences <- 0L
+          failed_sentences_ratio <- 0
+        } else {
+          # Backoff then tolerant fallback (partial translation allowed)
           Sys.sleep(retry_sleep_sec)
-          
-          # Second attempt: sentence-wise translation
-          translated_text_sent <- translate_by_sentences(
-            text_for_translate,
-            final_source_lang,
-            target_lang,
-            service
+          tol <- translate_tolerant(
+            text = text_for_translate,
+            source_lang = final_source_lang,
+            target_lang = target_lang,
+            service = service,
+            first_attempt = first
           )
           
-          if (is_suspicious_translation(translated_text_sent)) {
-            message(
-              "Giving up after ", max_retry_suspicious,
-              " suspicious translations for id = ", row_id
-            )
+          translated_text <- tol$translated_text
+          difficulty <- tol$difficulty
+          split_strategy <- tol$split_strategy
+          parts_total <- as.integer(tol$parts_total)
+          failed_parts <- as.integer(tol$failed_parts)
+          failed_parts_ratio <- as.numeric(tol$failed_parts_ratio)
+          sentences_total <- as.integer(tol$sentences_total)
+          failed_sentences <- as.integer(tol$failed_sentences)
+          failed_sentences_ratio <- as.numeric(tol$failed_sentences_ratio)
+          
+          # If *even the tolerant path* yields NA/empty, keep a hard error marker.
+          if (is.null(translated_text) || is.na(translated_text) || !nzchar(trimws(translated_text))) {
             translated_text <- "Translation Error"
-          } else {
-            translated_text <- translated_text_sent
+            difficulty <- "hard"
           }
         }
       }
       
       data.frame(
-        id                = row_id,
-        original          = text,  # original text without prefix/suffix
-        detected_language = detected$detectedLanguage,
-        confidence        = detected$confidence,
-        translated_text   = translated_text,
-        stringsAsFactors  = FALSE
+        id                    = row_id,
+        original              = text,  # original text without prefix/suffix
+        detected_language     = detected$detectedLanguage,
+        confidence            = detected$confidence,
+        translated_text       = translated_text,
+        difficulty            = difficulty,
+        split_strategy        = split_strategy,
+        parts_total           = parts_total,
+        failed_parts          = failed_parts,
+        failed_parts_ratio    = failed_parts_ratio,
+        sentences_total       = sentences_total,
+        failed_sentences      = failed_sentences,
+        failed_sentences_ratio= failed_sentences_ratio,
+        stringsAsFactors      = FALSE
       )
     })
     

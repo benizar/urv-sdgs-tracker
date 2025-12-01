@@ -30,8 +30,11 @@ extract_text_from_html <- function(html_text,
   .drop_list_markers <- function(z) {
     if (!length(z)) return(z)
     na <- is.na(z); z[na] <- ""
-    z <- gsub("(?m)^(\\s*)[•●◦▪·]+\\s*", "\\1", z, perl = TRUE)  # bullets
-    z <- gsub("(?m)^(\\s*)[-–—]+\\s+", "\\1", z, perl = TRUE)    # dash lists
+    
+    # bullets (sin el punt volat)
+    z <- gsub("(?m)^(\\s*)[•●◦▪]+\\s*", "\\1", z, perl = TRUE)
+    z <- gsub("(?m)^(\\s*)[-–—]+\\s+", "\\1", z, perl = TRUE)
+    
     z[na] <- NA_character_
     z
   }
@@ -61,12 +64,17 @@ extract_text_from_html <- function(html_text,
   # -----------------------------------------------------------------
   
   norm_basic <- function(z) {
-    z <- gsub("\u00A0", " ", z, fixed = TRUE)   # NBSP real
-    z <- gsub("&nbsp;", " ", z, fixed = TRUE)  # NBSP entity
-    z <- gsub("[ \t]+", " ", z, perl = TRUE)   # keep \n
+    z <- gsub("\u00A0", " ", z, fixed = TRUE)
+    z <- gsub("&nbsp;", " ", z, fixed = TRUE)
+    
+    z <- gsub("([\\p{L}])\\s*\\n\\s*·\\s*([\\p{L}])", "\\1·\\2", z, perl = TRUE)
+    z <- gsub("([\\p{L}])\\s*·\\s*([\\p{L}])", "\\1·\\2", z, perl = TRUE)
+    
+    z <- gsub("[ \t]+", " ", z, perl = TRUE)
     z <- trimws(z)
     .sanitize_chars(z)
   }
+  
   
   norm_cell <- function(z) {
     z <- norm_basic(z)
