@@ -61,7 +61,7 @@ translate:
   #   - "auto": call the configured translation service and (re)generate CSV files in output_dir
   #   - "reviewer": do NOT call any service; read existing CSV files from output_dir
   #                 (use this after manually reviewing/editing translations)
-  mode: "auto"
+  mode: "reviewer"
 
   # IMPORTANT:
   # By default ("overwrite: false"), auto mode uses a "resume" strategy:
@@ -115,6 +115,12 @@ translate:
 # sdg_detection section
 # -------------------------------------------------------------------
 sdg_detection:
+
+  # Query dictionary settings (used for analysis/wordclouds; independent from detection)
+  # - expansions file is a curated list to replace wildcard (*) expressions with full forms
+  queries_expansions_csv: "resources/asterisc_expressions_expanded.csv"
+  keep_single_word_queries: false
+  
   # Detection method:
   #   - "systems": run specified systems and aggregate hits
   #   - "ensemble": use text2sdg ensemble detector (single output, no per-system split)
@@ -152,6 +158,7 @@ sdg_detection:
       columns:
         - course_references_en
 
+  output: "features"
   aggregate:
     # Aggregation strategy for the final SDG signal.
     # "counts" typically means counting hits per SDG (and applying min_hits).

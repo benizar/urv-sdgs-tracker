@@ -29,6 +29,16 @@ targets_sdg <- list(
     is.null(sdg_config$enabled) || isTRUE(sdg_config$enabled)
   ),
   
+  # 0c) Query dictionary (for wordclouds / later analysis)
+  tar_target(
+    sdg_query_dictionary,
+    build_text2sdg_query_dictionary(
+      systems = sdg_config$systems %||% c("Aurora","Elsevier","Auckland","SIRIS","SDGO","SDSN"),
+      expansions_csv = sdg_config$queries_expansions_csv %||% "resources/asterisc_expressions_expanded.csv",
+      keep_single_word = isTRUE(sdg_config$keep_single_word_queries %||% FALSE)
+    )
+  ),
+  
   # 1) Build SDG input text:
   #    one row per (document_number, section), with concatenated text.
   tar_target(
@@ -103,9 +113,21 @@ targets_sdg <- list(
     summarise_sdg_hits_wide(sdg_hits_long, sdg_config)
   ),
   
-  # 7) Final table with SDG annotations.
+  # 7) Final table with SDG annotations (kept as-is).
   tar_target(
     guides_sdg,
     attach_sdg_to_guides(guides_translated, sdg_hits_wide)
+  ),
+  
+  # 8) NEW: one row per course with summary fields (global + per section)
+  tar_target(
+    guides_sdg_summary,
+    build_guides_sdg_summary(guides_translated, sdg_hits_long, sdg_config)
+  ),
+  
+  # 9) NEW: one row per detected SDG (courses repeat) for manual review workflows
+  tar_target(
+    guides_sdg_review,
+    build_guides_sdg_review(guides_translated, sdg_hits_long, sdg_config)
   )
 )

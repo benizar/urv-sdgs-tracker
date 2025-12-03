@@ -149,7 +149,9 @@ get_run_presets <- function() {
     # run only the final target of each phase
     load      = c("guides_loaded"),
     translate = c("guides_translated"),
-    sdg       = c("guides_sdg")
+    
+    # SDG phase: prefer reviewer-friendly outputs
+    sdg       = c("guides_sdg_summary", "guides_sdg_review")
   )
 }
 
@@ -167,16 +169,21 @@ get_load_presets <- function() {
       
       "guides_loaded",
       "guides_translated",
+      
       "sdg_input",
+      "sdg_hits_raw",
       "sdg_hits_long",
+      "sdg_features_long",
       "sdg_hits_wide",
-      "guides_sdg"
+      
+      "guides_sdg_summary",
+      "guides_sdg_review"
     ),
     
     # per-phase defaults
     load      = c("guides_loaded"),
     translate = c("guides_translated"),
-    sdg       = c("guides_sdg")
+    sdg       = c("guides_sdg_summary", "guides_sdg_review")
   )
 }
 
