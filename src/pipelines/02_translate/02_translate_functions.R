@@ -78,14 +78,14 @@ run_column_translations <- function(guides_loaded, translate_cfg) {
   
   if (is.null(columns_cfg) || !length(columns_cfg)) {
     stop(
-      "run_column_translations(): missing `translate: columns:` in config/pipeline.yml.\n\n",
+      "run_column_translations(): missing `columns:` in config/translate.yml.\n\n",
       "Please specify the columns to translate, e.g.:\n",
-      "translate:\n",
-      "  columns:\n",
-      "    - course_description\n",
-      "    - course_contents\n",
-      "    - course_competences_and_results\n",
-      "    - course_references\n"
+      "columns:\n",
+      "  - course_description\n",
+      "  - course_contents\n",
+      "  - course_competences_and_results\n",
+      "  - course_references\n",
+      call. = FALSE
     )
   }
   

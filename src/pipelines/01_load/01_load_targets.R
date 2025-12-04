@@ -5,11 +5,8 @@
 library(targets)
 
 targets_load <- list(
-  # Load-specific configuration extracted from the global pipeline config.
-  tar_target(
-    load_config,
-    pipeline_config$load
-  ),
+  
+  # load_config is provided by 00_config (config/load.yml)
   
   # Resolve/load directory (and download/unzip if needed).
   tar_target(

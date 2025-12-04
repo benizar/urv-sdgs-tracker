@@ -2,11 +2,10 @@
 # Helper to run and inspect the URV SDGs tracker pipeline from RStudio.
 #
 # Notes:
-# - Parallel execution is controlled by config/pipeline.yml under:
-#     global:
-#       parallel:
-#         enabled: true/false
-#         workers: 4
+# - Parallel execution is controlled by config/global under:
+#     parallel:
+#       enabled: true/false
+#       workers: 4
 # - You can temporarily override it per run with `use_parallel = TRUE/FALSE`.
 # - If parallel execution fails for any reason, the runner falls back to sequential.
 #
@@ -162,7 +161,6 @@ get_load_presets <- function() {
     
     # load only main inspection objects (fast + practical)
     main = c(
-      "pipeline_config",
       "load_config",
       "translate_config",
       "sdg_config",
@@ -317,15 +315,15 @@ clean_from_targets <- function(target_names) {
 }
 
 # -------------------------------------------------------------------
-# Internal: read parallel config from config/pipeline.yml
+# Internal: read parallel config from config/global.yml
 # -------------------------------------------------------------------
 
 get_parallel_config <- function() {
-  cfg_path <- file.path("config", "pipeline.yml")
+  cfg_path <- file.path("config", "global.yml")
   if (!file.exists(cfg_path)) return(list(enabled = FALSE, backend = "future", workers = 1L))
   
   cfg <- yaml::read_yaml(cfg_path)
-  parallel_cfg <- cfg$global$parallel
+  parallel_cfg <- cfg$parallel
   
   if (is.null(parallel_cfg)) return(list(enabled = FALSE, backend = "future", workers = 1L))
   

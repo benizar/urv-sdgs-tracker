@@ -30,7 +30,7 @@ resolve_load_dir <- function(load_cfg) {
   dir    <- load_cfg$dir
   subdir <- load_cfg$subdir
   
-  if (is.null(dir) || !nzchar(dir)) stop("load$dir is not set in config/pipeline.yml.")
+  if (is.null(dir) || !nzchar(dir)) stop("dir is not set in config/load.yml.")
   if (is.null(subdir) || !nzchar(subdir)) return(file.path(root, dir))
   
   file.path(root, dir, subdir)
@@ -45,7 +45,7 @@ ensure_load_data <- function(load_cfg) {
   force_download <- isTRUE(load_cfg$force_download %||% FALSE)
   is_zip         <- isTRUE(load_cfg$zip %||% TRUE)
   
-  if (is.null(dir) || !nzchar(dir)) stop("load$dir is not set in config/pipeline.yml.")
+  if (is.null(dir) || !nzchar(dir)) stop("dir is not set in config/load.yml.")
   
   base_dir <- file.path(root, dir)
   load_dir <- if (is.null(subdir) || !nzchar(subdir)) base_dir else file.path(base_dir, subdir)
@@ -91,7 +91,7 @@ ensure_load_data <- function(load_cfg) {
   if (!dir.exists(base_dir)) {
     stop(
       "Repository root does not exist after download/unzip: ", base_dir,
-      "\nCheck the archive structure or adjust load$dir in config/pipeline.yml."
+      "\nCheck the archive structure or adjust dir in config/load.yml."
     )
   }
   
@@ -99,7 +99,7 @@ ensure_load_data <- function(load_cfg) {
     stop(
       "Load directory not found after download/unzip: ", load_dir,
       "\nCheck that the archive contains this scraping subfolder or ",
-      "adjust load$subdir in config/pipeline.yml."
+      "adjust subdir in config/load.yml."
     )
   }
   

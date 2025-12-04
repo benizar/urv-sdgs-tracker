@@ -1,0 +1,31 @@
+# File: config/load.yml
+# -------------------------------------------------------------------
+# load section
+# -------------------------------------------------------------------
+
+# Base directory to store all loaded datasets.
+root: "data"
+
+# Repository-level folder inside `root`. In practice this should
+# match the top-level folder inside the Zenodo zip.
+dir: "urv_teaching_guides"
+
+# Subdirectory inside `root/dir` for a specific scraping batch.
+subdir: "scraped-20251127"
+
+# URL of the Zenodo (or other) archive to download when the load
+# directory does not exist yet.
+url: ""
+
+# Local path to store the downloaded archive, relative to the project root.
+archive_path: "data/urv_teaching_guides.zip"
+
+# If TRUE, always re-download the archive even if the local file exists.
+force_download: false
+
+# If TRUE, the zip is unzipped into `root`. The pipeline assumes
+# the archive creates a folder called `dir` under `root`.
+zip: true
+
+# Optional format identifier for the scraping layout.
+# format: "web_scraper_v1"

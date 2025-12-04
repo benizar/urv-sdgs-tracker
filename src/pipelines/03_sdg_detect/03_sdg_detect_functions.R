@@ -106,15 +106,14 @@ build_sdg_input <- function(guides_translated, sdg_cfg) {
   
   if (is.null(combine_groups) || !length(combine_groups)) {
     stop(
-      "build_sdg_input(): missing `sdg_detection: combine_groups:` in config/pipeline.yml.\n\n",
+      "build_sdg_input(): missing `combine_groups:` in config/sdg_detection.yml.\n\n",
       "Please define at least one group, e.g.:\n",
-      "sdg_detection:\n",
-      "  combine_groups:\n",
-      "    - id: \"course_info\"\n",
-      "      prefix: \"Course information: \"\n",
-      "      columns:\n",
-      "        - course_description_en\n",
-      "        - course_contents_en\n",
+      "combine_groups:\n",
+      "  - id: \"course_info\"\n",
+      "    prefix: \"Course information: \"\n",
+      "   columns:\n",
+      "     - course_description_en\n",
+      "     - course_contents_en\n",
       call. = FALSE
     )
   }

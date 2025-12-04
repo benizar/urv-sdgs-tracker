@@ -1,0 +1,60 @@
+# File: config/translate.yml
+# -------------------------------------------------------------------
+# translate section
+# -------------------------------------------------------------------
+
+enabled: true
+
+# Translation mode:
+#   - "auto": call the configured translation service and (re)generate CSV files in output_dir
+#   - "reviewer": do NOT call any service; read existing CSV files from output_dir
+#                 (use this after manually reviewing/editing translations)
+mode: "reviewer"
+
+# IMPORTANT:
+# By default ("overwrite: false"), auto mode uses a "resume" strategy:
+#   - if the translation CSV already exists, it is NOT deleted
+#   - only missing ids are translated and appended to the same CSV
+# This prevents accidental re-translation (and CSV deletion) when downstream
+# targets (e.g. sdg_detection) trigger a rebuild.
+#
+# Set overwrite: true ONLY when you want to delete existing CSVs and
+# force a full re-translation from scratch.
+overwrite: false
+
+# Translation backend used in "auto" mode.
+# Keep consistent with the running services (docker-compose).
+service: "libretranslate"
+
+# "auto" lets the service detect the source language.
+source_lang: "auto"
+target_lang: "en"
+
+# Parallelisation settings for translation batches.
+max_cores: 4
+batch_size: 50
+
+# Folder where per-column translation CSVs are created/read.
+# Files are named: <column>-<target_lang>-<service>.csv
+output_dir: "sandbox/translations"
+
+# Columns in guides_loaded to translate.
+# Each one will produce an extra column with suffix: _en
+columns:
+  - course_description
+  - course_contents
+  - course_competences_and_results
+  - course_references
+
+# If TRUE, perform a service healthcheck before translating (auto mode).
+# In reviewer mode, this check is skipped by the code.
+check_service: true
+
+# Service endpoints (used by translation helpers + healthcheck).
+libretranslate_base_url: "http://libretranslate:5000"
+apertium_base_url: "http://apertium:2737"
+
+# Healthcheck details (only used when check_service is true).
+healthcheck_path: "/health"
+healthcheck_timeout_sec: 60
+healthcheck_poll_interval_sec: 2

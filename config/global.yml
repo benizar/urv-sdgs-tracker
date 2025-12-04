@@ -1,0 +1,20 @@
+# File: config/global.yml
+# Global configuration for the URV SDGs tracker pipeline.
+#
+# This file is meant to centralise configuration for all pipeline phases:
+#   - load (data access and loading)
+#   - translate (optional translation layer)
+#   - sdg_detection (text2sdg parameters, model choices, etc.)
+#
+# Many sections and fields are commented out for now. They are placeholders
+# for future extensions and documentation.
+
+project_name: "URV SDGs tracker"
+
+parallel:
+  enabled: false
+
+  # NOTE: currently, run_pipeline.R uses future::plan(multisession, ...)
+  # regardless of this value. We keep it here as a placeholder for later:
+  backend: "multisession"
+  workers: 4

@@ -1,0 +1,53 @@
+# File: config/sdg_detect.yml
+# -------------------------------------------------------------------
+# sdg_detect section
+# -------------------------------------------------------------------
+
+# Query dictionary settings (used for analysis/wordclouds; independent from detection)
+# - expansions file is a curated list to replace wildcard (*) expressions with full forms
+queries_expansions_csv: "resources/asterisc_expressions_expanded.csv"
+keep_single_word_queries: false
+
+# Detection method:
+#   - "systems": run specified systems and aggregate hits
+#   - "ensemble": use text2sdg ensemble detector (single output, no per-system split)
+method: "systems"
+
+# Systems supported by text2sdg (names must match what the package expects).
+systems:
+  - "Aurora"
+  - "Elsevier"
+  - "Auckland"
+  - "SIRIS"
+  - "SDGO"
+  - "SDSN"
+
+# SDG ids to evaluate.
+sdgs: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+
+verbose: false
+
+# Groups of columns to concatenate into "sections" for detection.
+# Each group becomes a section id (sdg_input$section) and a text string:
+#   paste0(prefix, <col1>, "\n", <col2>, ...)
+combine_groups:
+  - id: "course_info"
+    prefix: "Course information: "
+    columns:
+      - course_description_en
+      - course_contents_en
+  - id: "competences"
+    prefix: "Competences and learning outcomes: "
+    columns:
+      - course_competences_and_results_en
+  - id: "references"
+    prefix: "References: "
+    columns:
+      - course_references_en
+
+output: "features"
+aggregate:
+  # Aggregation strategy for the final SDG signal.
+  # "counts" typically means counting hits per SDG (and applying min_hits).
+  mode: "counts"
+  min_hits: 1

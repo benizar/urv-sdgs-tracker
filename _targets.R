@@ -56,7 +56,7 @@ pipeline_dirs <- c(
   "src/pipelines/00_config",
   "src/pipelines/01_load",
   "src/pipelines/02_translate",
-  "src/pipelines/03_detect_sdg",
+  "src/pipelines/03_sdg_detect",
   "src/pipelines/99_logging"
   # ...
 )
@@ -82,6 +82,6 @@ list(
   targets_config,       # 00_config/00_config_targets.R
   targets_load,         # 01_load/01_load_targets.R
   targets_translate,    # 02_translate/02_translate_targets.R
-  targets_sdg,          # 03_detect_sdg/03_detect_sdg_targets.R
+  targets_sdg,          # 03_sdg_detect/03_sdg_detect_targets.R
   targets_logging       # 99_logging/99_logging_targets.R
 )

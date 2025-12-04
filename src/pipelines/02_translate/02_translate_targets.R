@@ -4,11 +4,8 @@
 library(targets)
 
 targets_translate <- list(
-  # Extract the translate config block from pipeline_config.
-  tar_target(
-    translate_config,
-    pipeline_config$translate
-  ),
+  
+  # translate_config is provided by 00_config (config/translate.yml)
   
   # Column names to translate must be explicitly provided in config.
   tar_target(
@@ -18,7 +15,7 @@ targets_translate <- list(
       
       if (is.null(cols) || !length(cols)) {
         stop(
-          "Missing `translate: columns:` in config/pipeline.yml.\n\n",
+          "Missing `translate: columns:` in config/translate.yml.\n\n",
           "Please specify the columns to translate, e.g.:\n",
           "translate:\n",
           "  columns:\n",

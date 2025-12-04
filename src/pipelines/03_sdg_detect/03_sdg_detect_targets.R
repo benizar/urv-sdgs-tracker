@@ -2,34 +2,24 @@
 # Targets for the SDG detection phase (text2sdg).
 #
 # Assumptions:
-#   - `pipeline_config` is defined in 00_config and contains `sdg_detection`
 #   - The translation phase produces `guides_translated` with `document_number`
-#     and the *_en columns referenced in config/pipeline.yml (combine_groups)
+#     and the *_en columns referenced in config/translate.yml (combine_groups)
 #   - Functions used here are defined in:
 #       src/pipelines/03_detect_sdg/03_detect_sdg_functions.R
 
 library(targets)
 
 targets_sdg <- list(
-  # 0) SDG configuration extracted from the global pipeline config.
-  tar_target(
-    sdg_config,
-    {
-      cfg <- pipeline_config$sdg_detection
-      if (is.null(cfg)) {
-        stop("Missing `sdg_detection:` section in config/pipeline.yml.", call. = FALSE)
-      }
-      cfg
-    }
-  ),
+
+  # sdg_config is provided by 00_config (config/sdg_detection.yml)
   
-  # 0b) Enable switch (defaults to TRUE if not present)
+  # 0a) Enable switch (defaults to TRUE if not present)
   tar_target(
     sdg_enabled,
     is.null(sdg_config$enabled) || isTRUE(sdg_config$enabled)
   ),
   
-  # 0c) Query dictionary (for wordclouds / later analysis)
+  # 0b) Query dictionary (for wordclouds / later analysis)
   tar_target(
     sdg_query_dictionary,
     build_text2sdg_query_dictionary(
