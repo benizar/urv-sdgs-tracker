@@ -1,6 +1,39 @@
-# File: src/common/url_parsers.R
+# File: src/common/05_urls.R
 # URL parsers for GUIdO and DOCnet course URLs.
+
+# Utility: right-trim slashes from URLs
+rtrim_slash <- function(x) {
+  sub("/+$", "", x)
+}
+
+# -------------------------------------------------------------------
+# Base URL helper
+# -------------------------------------------------------------------
+# The default values assume a Docker Compose setup where services are
+# named "libretranslate" and "apertium" on the default project network.
 #
+# Users can override these defaults via environment variables:
+#   - LIBRETRANSLATE_URL
+#   - APERTIUM_URL
+get_translation_base_url <- function(service = c("libretranslate", "apertium")) {
+  service <- match.arg(service)
+  
+  base <- switch(
+    service,
+    "libretranslate" = Sys.getenv(
+      "LIBRETRANSLATE_URL",
+      unset = "http://libretranslate:5000"
+    ),
+    "apertium" = Sys.getenv(
+      "APERTIUM_URL",
+      unset = "http://apertium:2737"
+    )
+  )
+  
+  # Normalise: remove trailing slashes just in case.
+  rtrim_slash(base)
+}
+
 # Returns named lists to be expanded with tidyr::unnest_wider().
 # DOCnet keeps optional modality suffix letter in course_code (e.g., 12815106v).
 

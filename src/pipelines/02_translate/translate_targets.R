@@ -7,6 +7,23 @@ targets_translate <- list(
   
   # translate_config is provided by 00_config (config/translate.yml)
   
+  tar_target(
+    translate_cfg_effective,
+    {
+      cfg <- translate_config
+      
+      svc <- tolower(cfg$service %||% "libretranslate")
+      
+      if (is.null(cfg$healthcheck_path) || !nzchar(cfg$healthcheck_path)) {
+        cfg$healthcheck_path <- if (svc == "apertium") "/listPairs" else "/languages"
+      }
+      
+      cfg$check_service <- cfg$check_service %||% TRUE
+      
+      cfg
+    }
+  ),
+  
   # Column names to translate must be explicitly provided in config.
   tar_target(
     translate_column_ids,
@@ -48,6 +65,44 @@ targets_translate <- list(
     }
   ),
   
+  # Decide whether we will actually call the translation API in this run
+  tar_target(
+    needs_translation_api,
+    {
+      cfg <- translate_cfg_effective
+      
+      enabled <- isTRUE(cfg$enabled %||% TRUE)
+      mode    <- cfg$mode %||% "auto"
+      
+      # Never call API if disabled or reviewer mode
+      if (!enabled || identical(mode, "reviewer")) {
+        return(FALSE)
+      }
+      
+      cols <- translate_column_ids
+      if (!length(cols)) return(FALSE)
+      
+      # Do we have any non-empty text in any selected column?
+      any(vapply(cols, function(col) {
+        v <- guides_loaded[[col]]
+        any(!is.na(v) & nzchar(trimws(as.character(v))))
+      }, logical(1)))
+    }
+  ),
+  
+  # Healthcheck as a target (runs ONLY if we expect API calls)
+  tar_target(
+    translation_service_healthcheck,
+    {
+      if (isTRUE(needs_translation_api)) {
+        check_translation_service(translate_cfg_effective)
+      } else {
+        message("Skipping translation service healthcheck (no API work expected).")
+      }
+      TRUE
+    }
+  ),
+  
   # One file target per column. Declared as `format = "file"` so edits to the CSV
   # (reviewer mode) automatically invalidate downstream targets.
   tar_target(
@@ -61,12 +116,16 @@ targets_translate <- list(
   # We map over `translation_file` too, so the branch depends on the on-disk CSV.
   tar_target(
     guides_translated_column,
-    translate_guides_column(
-      guides_loaded,
-      translate_config,
-      column_name = translate_column_ids,
-      translation_file = translation_file
-    ),
+    {
+      translation_service_healthcheck  # dependency
+      
+      translate_guides_column(
+        guides_loaded,
+        translate_config,
+        column_name = translate_column_ids,
+        translation_file = translation_file
+      )
+    },
     pattern = map(translate_column_ids, translation_file),
     iteration = "list"
   ),

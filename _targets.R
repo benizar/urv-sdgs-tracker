@@ -32,7 +32,7 @@ tar_option_set(
 # -------------------------------------------------------------------
 # 1) Load common, reusable helpers
 # -------------------------------------------------------------------
-common_dirs <- c("src/common", "src/commons")
+common_dirs <- c("src/common")
 
 common_files <- unlist(lapply(
   common_dirs,
@@ -58,21 +58,20 @@ pipeline_dirs <- c(
   "src/pipelines/02_translate",
   "src/pipelines/03_sdg_detect",
   "src/pipelines/99_logging"
-  # ...
 )
 
 pipeline_files <- unlist(lapply(
   pipeline_dirs,
   function(d) {
     if (dir.exists(d)) {
-      sort(list.files(d, pattern = "[.][Rr]$", full.names = TRUE))
+      sort(list.files(d, pattern = "[.][Rr]$", full.names = TRUE, recursive = TRUE))
     } else {
       character(0)
     }
   }
 ))
 
-lapply(pipeline_files, source)
+if (length(pipeline_files)) tar_source(pipeline_files)
 
 # -------------------------------------------------------------------
 # 3) Combine all phase target lists

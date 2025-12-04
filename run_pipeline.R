@@ -51,12 +51,11 @@ library(rlang)
 # -------------------------------------------------------------------
 # Logging helpers
 # -------------------------------------------------------------------
-
-get_pipeline_log_path <- function() {
+get_targets_log_path <- function() {
   file.path("sandbox", "logs", "targets_log.csv")
 }
 
-log_pipeline_run <- function(mode, targets_run, log_path = get_pipeline_log_path()) {
+log_pipeline_run <- function(mode, targets_run, log_path = get_targets_log_path()) {
   meta <- tryCatch(targets::tar_meta(), error = function(e) NULL)
   
   if (is.null(meta) || !nrow(meta)) {

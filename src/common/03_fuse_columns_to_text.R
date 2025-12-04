@@ -1,5 +1,11 @@
-# File: src/common/fuse_columns_to_text.R
-# Fuse n columns into a single text column (row-wise), coercing any type to character.
+# File: src/common/03_fuse_columns_to_text.R
+# Purpose:
+#   Generic helpers to fuse multiple text columns into a single string (or tibble)
+#   using configurable groups (prefix + columns) and a standard cleaning strategy.
+#
+# Typical uses:
+#   - Build sectioned inputs for NLP / classification (e.g., SDG detection)
+#   - Create readable "combined text" fields for review/export
 
 coerce_to_text_default <- function(x) {
   # Lists: paste atomic items, otherwise deparse

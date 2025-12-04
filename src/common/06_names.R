@@ -1,4 +1,4 @@
-# File: src/commons/name_normalization.R
+# File: src/commons/06_names.R
 # Person name normalization helpers shared across pipelines.
 #
 # PURPOSE:

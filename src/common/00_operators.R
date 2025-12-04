@@ -1,5 +1,5 @@
-# File: src/common/common_utils.R
-# Common helper functions and operators used across the pipeline.
+# File: src/common/00_operators.R
+# Operators and nano-helpers used across the pipeline.
 
 # Null-coalescing-like operator for default values.
 # Usage:

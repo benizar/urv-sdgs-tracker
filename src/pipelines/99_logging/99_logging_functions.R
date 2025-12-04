@@ -1,13 +1,9 @@
 # File: src/pipelines/99_logging/99_logging_functions.R
 # Helpers for analysing the pipeline log written by run_pipeline().
 
-# Centralised path: must match run_pipeline::get_pipeline_log_path()
-get_log_path <- function() {
-  file.path("sandbox", "logs", "targets_log.csv")
-}
 
 # Load the accumulated pipeline log from CSV.
-load_pipeline_log <- function(path = get_log_path()) {
+load_pipeline_log <- function(path = get_targets_log_path()) {
   if (!file.exists(path)) {
     message(
       "Log file not found: ", path,

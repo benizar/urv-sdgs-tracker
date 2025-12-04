@@ -1,4 +1,4 @@
-# File: src/common/text2sdg_queries_helpers.R
+# File: src/pipelines/03_sdg_detect/functions/15_queries.R
 #
 # Helpers to work with text2sdg query dictionaries and extracted "features".
 #
@@ -10,8 +10,8 @@
 #   - Parse/normalize "features" returned by text2sdg (for wordclouds)
 #
 # Notes:
-# - This file assumes a null-coalesce helper exists globally (e.g. %||% in common_utils.R).
-# - This file is sourced from _targets.R via the src/common loader.
+# - Assumes a null-coalesce helper exists globally (e.g. %||% in src/common).
+# - Kept inside the SDG phase because it is tightly coupled to {text2sdg} workflows.
 
 # ------------------------------------------------------------
 # Features parsing
