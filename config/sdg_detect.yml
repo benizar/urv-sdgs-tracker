@@ -6,7 +6,6 @@
 # Query dictionary settings (used for analysis/wordclouds; independent from detection)
 # - expansions file is a curated list to replace wildcard (*) expressions with full forms
 queries_expansions_csv: "resources/asterisc_expressions_expanded.csv"
-keep_single_word_queries: false
 
 # Detection method:
 #   - "systems": run specified systems and aggregate hits
@@ -45,9 +44,21 @@ combine_groups:
     columns:
       - course_references_en
 
-output: "features"
 aggregate:
   # Aggregation strategy for the final SDG signal.
   # "counts" typically means counting hits per SDG (and applying min_hits).
   mode: "counts"
   min_hits: 1
+
+# -------------------------------------------------------------------
+# Feature summaries (derived from text2sdg `features`)
+# -------------------------------------------------------------------
+output: "features"
+
+features_top_n: 30
+
+# Separator used in features_top (human-readable compact list)
+features_sep: ";\n"
+
+# If you add features_terms (unique list), this is its separator
+features_terms_sep: ", "

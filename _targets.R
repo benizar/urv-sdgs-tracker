@@ -38,13 +38,10 @@ common_files <- unlist(lapply(
   common_dirs,
   function(d) {
     if (dir.exists(d)) {
-      sort(list.files(d, pattern = "[.][Rr]$", full.names = TRUE))
-    } else {
-      character(0)
-    }
+      sort(list.files(d, pattern = "[.][Rr]$", full.names = TRUE, recursive = TRUE))
+    } else character(0)
   }
 ))
-
 if (length(common_files)) tar_source(common_files)
 
 # -------------------------------------------------------------------
@@ -78,9 +75,9 @@ if (length(pipeline_files)) tar_source(pipeline_files)
 #    (each one is defined in its own folder under src/pipelines/)
 # -------------------------------------------------------------------
 list(
-  targets_config,       # 00_config/00_config_targets.R
-  targets_load,         # 01_load/01_load_targets.R
-  targets_translate,    # 02_translate/02_translate_targets.R
-  targets_sdg,          # 03_sdg_detect/03_sdg_detect_targets.R
-  targets_logging       # 99_logging/99_logging_targets.R
+  targets_config,       # 00_config/config_targets.R
+  targets_load,         # 01_load/load_targets.R
+  targets_translate,    # 02_translate/translate_targets.R
+  targets_sdg,          # 03_sdg_detect/detect_targets.R
+  targets_logging       # 99_logging/logging_targets.R
 )

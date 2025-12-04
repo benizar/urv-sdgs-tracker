@@ -1,16 +1,16 @@
-# File: src/pipelines/03_detect_sdg/03_detect_sdg_targets.R
+# File: src/pipelines/03_detect_sdg/sdg_detect_targets.R
 # Targets for the SDG detection phase (text2sdg).
 #
 # Assumptions:
 #   - The translation phase produces `guides_translated` with `document_number`
-#     and the *_en columns referenced in config/translate.yml (combine_groups)
+#     and the *_en columns referenced in config/sdg_detection.yml (combine_groups)
 #   - Functions used here are defined in:
-#       src/pipelines/03_detect_sdg/03_detect_sdg_functions.R
+#       src/pipelines/03_detect_sdg/functions/*.R  (loaded by _targets.R)
 
 library(targets)
 
 targets_sdg <- list(
-
+  
   # sdg_config is provided by 00_config (config/sdg_detection.yml)
   
   # 0a) Enable switch (defaults to TRUE if not present)
@@ -19,13 +19,12 @@ targets_sdg <- list(
     is.null(sdg_config$enabled) || isTRUE(sdg_config$enabled)
   ),
   
-  # 0b) Query dictionary (for wordclouds / later analysis)
+  # 0b) Query dictionary (for later analysis)
   tar_target(
     sdg_query_dictionary,
     build_text2sdg_query_dictionary(
       systems = sdg_config$systems %||% c("Aurora","Elsevier","Auckland","SIRIS","SDGO","SDSN"),
-      expansions_csv = sdg_config$queries_expansions_csv %||% "resources/asterisc_expressions_expanded.csv",
-      keep_single_word = isTRUE(sdg_config$keep_single_word_queries %||% FALSE)
+      expansions_csv = sdg_config$queries_expansions_csv %||% "resources/asterisc_expressions_expanded.csv"
     )
   ),
   
@@ -97,6 +96,33 @@ targets_sdg <- list(
     summarise_sdg_hits_long(sdg_hits_raw)
   ),
   
+  # 5b) expanded features (one row per feature term)
+  tar_target(
+    sdg_features_long,
+    {
+      if (!sdg_enabled || !nrow(sdg_hits_raw)) {
+        tibble::tibble(
+          document_number = character(0),
+          section         = character(0),
+          system          = character(0),
+          sdg             = character(0),
+          query_id        = integer(0),
+          feature         = character(0),
+          feature_raw     = character(0)
+        )
+      } else {
+        if (!exists("extract_features_long", mode = "function", inherits = TRUE)) {
+          stop(
+            "sdg_features_long: extract_features_long() not found.\n",
+            "Make sure src/pipelines/03_detect_sdg/functions/15_queries.R is sourced by _targets.R.",
+            call. = FALSE
+          )
+        }
+        extract_features_long(sdg_hits_raw, sdg_config, sdg_query_dictionary)
+      }
+    }
+  ),
+  
   # 6) Wide summary (one row per document_number, one column per combo).
   tar_target(
     sdg_hits_wide,
@@ -109,15 +135,15 @@ targets_sdg <- list(
     attach_sdg_to_guides(guides_translated, sdg_hits_wide)
   ),
   
-  # 8) NEW: one row per course with summary fields (global + per section)
+  # 8) Summary per course (global + per section) + feature stats (optional)
   tar_target(
     guides_sdg_summary,
-    build_guides_sdg_summary(guides_translated, sdg_hits_long, sdg_config)
+    build_guides_sdg_summary(guides_translated, sdg_hits_long, sdg_config, sdg_features_long)
   ),
   
-  # 9) NEW: one row per detected SDG (courses repeat) for manual review workflows
+  # 9) Review table per detected SDG + optional feature snippets
   tar_target(
     guides_sdg_review,
-    build_guides_sdg_review(guides_translated, sdg_hits_long, sdg_config)
+    build_guides_sdg_review(guides_translated, sdg_hits_long, sdg_config, sdg_features_long)
   )
 )

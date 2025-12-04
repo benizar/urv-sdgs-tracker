@@ -1,262 +1,258 @@
 # File: src/pipelines/03_sdg_detect/functions/15_queries.R
 #
-# Helpers to work with text2sdg query dictionaries and extracted "features".
+# Purpose:
+#   Helpers to work with text2sdg query dictionaries and extracted "features".
 #
 # Responsibilities:
-#   - Load text2sdg query dictionaries
-#   - Extract quoted (literal) expressions from queries
-#   - Expand wildcard (*) expressions via a curated CSV
-#   - Augment text2sdg hits with query text + extracted literals
-#   - Parse/normalize "features" returned by text2sdg (for wordclouds)
-#
-# Notes:
-# - Assumes a null-coalesce helper exists globally (e.g. %||% in src/common).
-# - Kept inside the SDG phase because it is tightly coupled to {text2sdg} workflows.
+#   - Load curated wildcard expansions (CSV) with flexible column names
+#   - Normalize / parse text2sdg `features` strings into one-term-per-row tables
+#   - Optionally flag whether a feature is present in the query dictionary
 
-# ------------------------------------------------------------
-# Features parsing
-# ------------------------------------------------------------
-
-parse_features <- function(x) {
-  # text2sdg typically returns features as a string (often comma-separated).
-  x <- stats::na.omit(as.character(x))
-  x <- x[nzchar(x)]
-  if (!length(x)) return(character(0))
-  
-  parts <- unlist(strsplit(x, "[,;|]"))
-  parts <- stringr::str_trim(parts)
-  parts <- parts[nzchar(parts)]
-  parts <- tolower(parts)
-  unique(parts)
-}
-
-# ------------------------------------------------------------
-# Query literal extraction + wildcard expansions
-# ------------------------------------------------------------
-
-extract_quoted_literals <- function(query) {
-  query <- as.character(query %||% "")
-  if (!nzchar(query)) return(character(0))
-  
-  m <- stringr::str_match_all(query, '"([^"]+)"')[[1]]
-  if (is.null(m) || nrow(m) == 0) return(character(0))
-  
-  out <- m[, 2]
-  out <- tolower(stringr::str_trim(out))
-  out <- out[nzchar(out)]
-  unique(out)
-}
-
-read_queries_expansions <- function(path) {
-  # Expected schema:
-  #   - expression (wildcard literal, e.g. "child*")
-  #   - expansions (comma-separated list)
-  if (is.null(path) || !nzchar(path) || !file.exists(path)) {
-    return(tibble::tibble(expression = character(0), expansions = character(0)))
+# -------------------------------------------------------------------
+# Read wildcard expansions CSV (curated)
+# Supports:
+#   - columns: expression/query/pattern + expansion/expanded/term OR expansions (comma-separated list)
+# -------------------------------------------------------------------
+read_query_expansions <- function(csv_path) {
+  if (is.null(csv_path) || !nzchar(csv_path)) {
+    return(tibble::tibble(query = character(0), expansion = character(0)))
   }
   
-  df <- tryCatch(
-    readr::read_csv(path, show_col_types = FALSE),
-    error = function(e) NULL
+  if (!file.exists(csv_path)) {
+    message("read_query_expansions(): expansions CSV not found, skipping expansion: ", csv_path)
+    return(tibble::tibble(query = character(0), expansion = character(0)))
+  }
+  
+  x <- readr::read_csv(csv_path, show_col_types = FALSE)
+  
+  nms <- tolower(names(x))
+  names(x) <- nms
+  
+  q_col <- dplyr::case_when(
+    "query"      %in% nms ~ "query",
+    "expression" %in% nms ~ "expression",
+    "expr"       %in% nms ~ "expr",
+    "pattern"    %in% nms ~ "pattern",
+    "wildcard"   %in% nms ~ "wildcard",
+    TRUE ~ NA_character_
   )
-  if (is.null(df) || !nrow(df)) {
-    return(tibble::tibble(expression = character(0), expansions = character(0)))
-  }
   
-  # Defensive normalization of column names.
-  nms <- names(df)
-  if (!"expression" %in% nms && "expr" %in% nms) names(df)[names(df) == "expr"] <- "expression"
-  if (!"expansions" %in% nms && "expansion" %in% nms) names(df)[names(df) == "expansion"] <- "expansions"
+  e_col <- dplyr::case_when(
+    "expansion"  %in% nms ~ "expansion",
+    "expanded"   %in% nms ~ "expanded",
+    "term"       %in% nms ~ "term",
+    "value"      %in% nms ~ "value",
+    "expansions" %in% nms ~ "expansions",  # your file often uses this
+    TRUE ~ NA_character_
+  )
   
-  if (!all(c("expression", "expansions") %in% names(df))) {
-    warning(
-      "read_queries_expansions(): expansions CSV does not contain {expression, expansions}. Ignoring. Path: ",
-      path
+  if (is.na(q_col) || is.na(e_col)) {
+    stop(
+      "read_query_expansions(): CSV must contain columns for query/expression/pattern and expansion/term/expansions.\n",
+      "Found columns: ", paste(names(x), collapse = ", "),
+      call. = FALSE
     )
-    return(tibble::tibble(expression = character(0), expansions = character(0)))
   }
   
-  df |>
+  out <- x |>
     dplyr::transmute(
-      expression = tolower(stringr::str_trim(as.character(expression))),
-      expansions = tolower(stringr::str_trim(as.character(expansions)))
+      query_raw = trimws(as.character(.data[[q_col]])),
+      exp_raw   = as.character(.data[[e_col]])
     ) |>
-    dplyr::filter(nzchar(expression), nzchar(expansions)) |>
-    dplyr::distinct(expression, expansions)
-}
-
-expand_wildcard_literals <- function(literals, expansions_tbl) {
-  literals <- unique(stats::na.omit(as.character(literals)))
-  literals <- literals[nzchar(literals)]
-  if (!length(literals)) return(character(0))
+    dplyr::filter(!is.na(query_raw), query_raw != "", !is.na(exp_raw), trimws(exp_raw) != "")
   
-  if (is.null(expansions_tbl) || !nrow(expansions_tbl)) {
-    return(literals)
+  # If we have a single "expansions" cell with comma-separated expansions, split to rows.
+  if (identical(e_col, "expansions")) {
+    out <- out |>
+      tidyr::separate_rows(exp_raw, sep = "\\s*,\\s*") |>
+      dplyr::mutate(exp_raw = trimws(exp_raw))
   }
   
-  out <- character(0)
-  for (lit in literals) {
-    if (stringr::str_detect(lit, "\\*")) {
-      row <- expansions_tbl[expansions_tbl$expression == lit, , drop = FALSE]
-      if (nrow(row) >= 1) {
-        exps <- unlist(strsplit(row$expansions[1], ","))
-        exps <- tolower(stringr::str_trim(exps))
-        exps <- exps[nzchar(exps)]
-        out <- c(out, exps)
-      } else {
-        out <- c(out, lit)
-      }
-    } else {
-      out <- c(out, lit)
-    }
-  }
-  
-  out <- unique(out)
-  out <- out[nzchar(out)]
-  out
+  out |>
+    dplyr::transmute(
+      query     = query_raw,
+      expansion = exp_raw
+    ) |>
+    dplyr::filter(!is.na(expansion), expansion != "") |>
+    dplyr::distinct()
 }
 
-# ------------------------------------------------------------
-# Load + bind text2sdg query dictionaries
-# ------------------------------------------------------------
+# -------------------------------------------------------------------
+# Normalization helpers for feature strings
+# -------------------------------------------------------------------
 
-load_text2sdg_queries <- function(systems = NULL) {
-  # Supported text2sdg datasets we want to bind.
-  datasets <- c(
-    "aurora_queries",
-    "auckland_queries",
-    "elsevier_queries",
-    "sdgo_queries",
-    "sdsn_queries",
-    "siris_queries"
+# Normalize a candidate feature phrase:
+# - lowercase
+# - convert commas/punctuation to spaces
+# - remove duplicate tokens (case-insensitive), preserving order
+# - collapse whitespace
+.normalize_feature_phrase <- function(x) {
+  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) return(NA_character_)
+  
+  s <- tolower(trimws(as.character(x)))
+  
+  # Treat commas as separators; also strip light punctuation to avoid "urban)" etc.
+  s <- gsub("[,;/|]+", " ", s, perl = TRUE)
+  s <- gsub("[()\\[\\]{}\"']", " ", s, perl = TRUE)
+  
+  # Collapse multiple spaces
+  s <- gsub("\\s+", " ", s, perl = TRUE)
+  s <- trimws(s)
+  if (!nzchar(s)) return(NA_character_)
+  
+  # Tokenize and de-duplicate tokens inside the phrase
+  toks <- unlist(strsplit(s, "\\s+", perl = TRUE), use.names = FALSE)
+  toks <- toks[nzchar(toks)]
+  if (!length(toks)) return(NA_character_)
+  
+  # Deduplicate while preserving first occurrence
+  toks <- toks[!duplicated(toks)]
+  s2 <- paste(toks, collapse = " ")
+  if (!nzchar(s2)) return(NA_character_)
+  
+  s2
+}
+
+# Split text2sdg features field into items.
+# Input looks like: "Urban, Planning" or "work, work, work" etc.
+.parse_features_items <- function(x) {
+  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) return(character(0))
+  
+  items <- unlist(strsplit(x, "\\s*[|;]\\s*|\\r?\\n+", perl = TRUE), use.names = FALSE)
+  items <- trimws(items)
+  items[nzchar(items)]
+}
+
+
+# Expand one wildcard query like "child*" -> multiple expansions (if present)
+expand_wildcard_term <- function(term, expansions_tbl) {
+  if (is.null(term) || is.na(term) || !nzchar(trimws(term))) return(character(0))
+  t <- trimws(term)
+  
+  if (!grepl("\\*", t, fixed = TRUE)) return(t)
+  
+  if (is.null(expansions_tbl) || !nrow(expansions_tbl)) return(t)
+  
+  ex <- expansions_tbl$expansion[expansions_tbl$query == t]
+  ex <- unique(trimws(ex))
+  ex <- ex[nzchar(ex)]
+  
+  if (!length(ex)) t else ex
+}
+
+# Extract a character vector of dictionary terms from a dictionary object (flexible)
+.get_dictionary_terms <- function(dict) {
+  if (is.null(dict) || !nrow(dict)) return(character(0))
+  
+  nms <- names(dict)
+  col <- dplyr::case_when(
+    "expression" %in% nms ~ "expression",
+    "term"       %in% nms ~ "term",
+    "feature"    %in% nms ~ "feature",
+    "query"      %in% nms ~ "query",
+    TRUE ~ NA_character_
   )
   
-  out <- list()
+  if (is.na(col)) return(character(0))
   
-  for (nm in datasets) {
-    obj <- NULL
-    
-    # Try internal namespace access.
-    obj <- tryCatch(get(nm, envir = asNamespace("text2sdg")), error = function(e) NULL)
-    
-    # Fallback: data() into local env.
-    if (is.null(obj)) {
-      ok <- tryCatch({
-        data(list = nm, package = "text2sdg", envir = environment())
-        TRUE
-      }, error = function(e) FALSE)
-      
-      if (ok && exists(nm, envir = environment(), inherits = FALSE)) {
-        obj <- get(nm, envir = environment(), inherits = FALSE)
-      }
-    }
-    
-    if (!is.null(obj)) out[[nm]] <- obj
-  }
-  
-  if (!length(out)) {
-    stop(
-      "load_text2sdg_queries(): could not load query dictionaries from {text2sdg}.",
-      call. = FALSE
-    )
-  }
-  
-  dict <- dplyr::bind_rows(out)
-  
-  # Minimal schema we rely on.
-  needed <- c("system", "sdg", "query_id", "query")
-  missing <- setdiff(needed, names(dict))
-  if (length(missing)) {
-    stop(
-      "load_text2sdg_queries(): unexpected dictionary schema, missing: ",
-      paste(missing, collapse = ", "),
-      call. = FALSE
-    )
-  }
-  
-  dict <- dict |>
-    dplyr::mutate(
-      system   = as.character(system),
-      sdg      = as.character(sdg),
-      query_id = suppressWarnings(as.integer(query_id)),
-      query    = as.character(query)
-    )
-  
-  if (!is.null(systems) && length(systems)) {
-    dict <- dict |> dplyr::filter(system %in% as.character(systems))
-  }
-  
-  dict
+  terms <- tolower(trimws(as.character(dict[[col]])))
+  terms <- terms[!is.na(terms) & nzchar(terms)]
+  unique(terms)
 }
 
-# ------------------------------------------------------------
-# Build dictionary of quoted literals (per system + query_id)
-# ------------------------------------------------------------
-
-build_query_literals_dictionary <- function(sdg_cfg) {
-  systems <- sdg_cfg$systems %||% NULL
-  dict <- load_text2sdg_queries(systems = systems)
+# -------------------------------------------------------------------
+# Public: Build a long table of normalized(+expanded) features from hits
+# -------------------------------------------------------------------
+extract_features_long <- function(hits, sdg_cfg, sdg_query_dictionary = NULL) {
+  if (!nrow(hits) || !"features" %in% names(hits)) {
+    return(tibble::tibble(
+      document_number = character(0),
+      section         = character(0),
+      system          = character(0),
+      sdg             = character(0),
+      query_id        = integer(0),
+      feature         = character(0),
+      feature_raw     = character(0),
+      in_dictionary   = logical(0)
+    ))
+  }
   
+  needed <- c("document_number", "section", "system", "sdg")
+  if (!all(needed %in% names(hits))) {
+    stop(
+      "extract_features_long(): hits must contain columns: ",
+      paste(needed, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  
+  # Optional expansions (mainly useful if any feature ever contains '*')
   expansions_path <- sdg_cfg$queries_expansions_csv %||% ""
-  expansions_tbl  <- read_queries_expansions(expansions_path)
+  expansions_tbl  <- read_query_expansions(expansions_path)
   
-  keep_single_word <- isTRUE(sdg_cfg$keep_single_word_queries %||% FALSE)
+  # Dictionary terms (optional flag; does not filter by default)
+  dict_terms <- .get_dictionary_terms(sdg_query_dictionary)
   
-  dict |>
-    dplyr::transmute(
-      system,
-      query_id = suppressWarnings(as.integer(query_id)),
-      sdg = as.character(sdg),
-      query = as.character(query)
-    ) |>
+  # Some text2sdg outputs include query_id; if missing, keep NA_integer_
+  if (!"query_id" %in% names(hits)) hits$query_id <- NA_integer_
+  
+  tmp <- hits |>
     dplyr::mutate(
-      literals = purrr::map(query, extract_quoted_literals),
-      literals = purrr::map(literals, expand_wildcard_literals, expansions_tbl = expansions_tbl),
-      literals = purrr::map(literals, function(x) {
-        x <- unique(stats::na.omit(as.character(x)))
-        x <- x[nzchar(x)]
-        if (!keep_single_word) {
-          x <- x[stringr::str_count(x, "\\S+") > 1]
-        }
-        unique(x)
-      })
+      feature_raw = as.character(features),
+      .items      = lapply(feature_raw, .parse_features_items)
     ) |>
-    dplyr::select(system, query_id, sdg, query, literals)
-}
-
-# ------------------------------------------------------------
-# Augment hits with query + literals if query_id exists
-# ------------------------------------------------------------
-
-augment_hits_with_query_info <- function(hits, sdg_cfg) {
-  if (!nrow(hits)) return(hits)
+    tidyr::unnest(.items, keep_empty = FALSE) |>
+    dplyr::transmute(
+      document_number,
+      section,
+      system = as.character(system),
+      sdg    = as.character(sdg),
+      query_id = suppressWarnings(as.integer(query_id)),
+      feature_raw,
+      feature_item = as.character(.items)
+    ) |>
+    dplyr::filter(!is.na(feature_item), nzchar(trimws(feature_item)))
   
-  # If output="documents", some versions may not include query_id.
-  if (!("system" %in% names(hits) && "query_id" %in% names(hits))) {
-    hits$query <- NA_character_
-    hits$query_literals <- list()
-    hits$query_literals_n <- 0L
-    hits$query_literals_collapsed <- ""
-    return(hits)
+  if (!nrow(tmp)) {
+    return(tibble::tibble(
+      document_number = character(0),
+      section         = character(0),
+      system          = character(0),
+      sdg             = character(0),
+      query_id        = integer(0),
+      feature         = character(0),
+      feature_raw     = character(0),
+      in_dictionary   = logical(0)
+    ))
   }
   
-  dict_lit <- build_query_literals_dictionary(sdg_cfg)
+  # Normalize (lowercase + dedupe tokens) then optional wildcard expansion
+  expanded <- tmp |>
+    dplyr::mutate(
+      feature_norm = vapply(feature_item, .normalize_feature_phrase, character(1)),
+      feature_norm = dplyr::na_if(feature_norm, "")
+    ) |>
+    dplyr::filter(!is.na(feature_norm), feature_norm != "") |>
+    dplyr::mutate(
+      feature = lapply(feature_norm, expand_wildcard_term, expansions_tbl = expansions_tbl)
+    ) |>
+    tidyr::unnest(feature, keep_empty = FALSE) |>
+    dplyr::mutate(
+      feature = vapply(feature, .normalize_feature_phrase, character(1)),
+      feature = dplyr::na_if(feature, "")
+    ) |>
+    dplyr::filter(!is.na(feature), feature != "") |>
+    dplyr::distinct(document_number, section, system, sdg, query_id, feature, feature_raw)
   
-  hits |>
-    dplyr::mutate(
-      system   = as.character(system),
-      query_id = suppressWarnings(as.integer(query_id))
-    ) |>
-    dplyr::left_join(dict_lit, by = c("system", "query_id")) |>
-    dplyr::mutate(
-      query = dplyr::coalesce(query, NA_character_),
-      query_literals = purrr::map(literals, function(x) unique(stats::na.omit(as.character(x)))),
-      query_literals_n = purrr::map_int(query_literals, length),
-      query_literals_collapsed = purrr::map_chr(query_literals, function(x) {
-        x <- unique(stats::na.omit(as.character(x)))
-        x <- x[nzchar(x)]
-        if (!length(x)) "" else paste(sort(x), collapse = ", ")
-      })
-    ) |>
-    dplyr::select(-literals)
+  
+  if (length(dict_terms)) {
+    expanded <- expanded |>
+      dplyr::mutate(in_dictionary = feature %in% dict_terms)
+  } else {
+    expanded <- expanded |>
+      dplyr::mutate(in_dictionary = NA)
+  }
+  
+  expanded |>
+    dplyr::select(document_number, section, system, sdg, query_id, feature, feature_raw, in_dictionary)
 }
