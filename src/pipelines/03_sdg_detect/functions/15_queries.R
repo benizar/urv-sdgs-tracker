@@ -1,169 +1,145 @@
 # File: src/pipelines/03_sdg_detect/functions/15_queries.R
-#
 # Purpose:
-#   Helpers to work with text2sdg query dictionaries and extracted "features".
+#   Post-process text2sdg hits to obtain one feature per row, with “compound”
+#   expressions re-composed using fixed string substitutions (your original approach).
 #
-# Responsibilities:
-#   - Load curated wildcard expansions (CSV) with flexible column names
-#   - Normalize / parse text2sdg `features` strings into one-term-per-row tables
-#   - Optionally flag whether a feature is present in the query dictionary
+# Key idea:
+#   - Build patterns: "quality of life" -> "quality, of, life"
+#   - Apply Reduce(gsub(..., fixed=TRUE)) over raw `features`
+#   - Split by comma to get final features (compounds preserved, unknowns stay as singles)
+#
+# Notes:
+#   - This code does NOT try to "guess" compounds outside the dictionary.
+#   - It only recomposes compounds that exist in `compound_rules` / dictionary.
 
 # -------------------------------------------------------------------
-# Read wildcard expansions CSV (curated)
-# Supports:
-#   - columns: expression/query/pattern + expansion/expanded/term OR expansions (comma-separated list)
+# Helpers
 # -------------------------------------------------------------------
-read_query_expansions <- function(csv_path) {
-  if (is.null(csv_path) || !nzchar(csv_path)) {
-    return(tibble::tibble(query = character(0), expansion = character(0)))
+
+.normalize_features_commas <- function(x) {
+  # Vectorised. Input: character vector. Output: character vector.
+  if (is.null(x)) return(rep(NA_character_, 0))
+  
+  x <- as.character(x)
+  x <- tolower(x)
+  
+  # --- NEW: normalize hyphens so compounds can match ---
+  # 1) if text2sdg produced "-"" as its own token between commas, drop it:
+  #    "evidence, -, based, medicine" -> "evidence, based, medicine"
+  x <- gsub("\\s*,\\s*-\\s*,\\s*", ", ", x, perl = TRUE)
+  
+  # 2) if a hyphen is inside a word, treat it like a space for matching:
+  #    "evidence-based medicine" -> "evidence based medicine"
+  x <- gsub("(?<=\\w)-(?=\\w)", " ", x, perl = TRUE)
+  
+  # Normalise separators that may appear between feature chunks
+  x <- gsub("\\r?\\n+", " | ", x, perl = TRUE)
+  x <- gsub("\\s*[;|]+\\s*", " | ", x, perl = TRUE)
+  
+  # Now normalise comma spacing inside each chunk so fixed patterns match
+  chunks_list <- strsplit(x, "\\s*\\|\\s*", perl = TRUE)
+  
+  out <- vapply(chunks_list, function(chunks) {
+    chunks <- chunks[nzchar(trimws(chunks))]
+    if (!length(chunks)) return("")
+    
+    chunks2 <- vapply(chunks, function(one) {
+      toks <- unlist(strsplit(one, "\\s*,\\s*", perl = TRUE), use.names = FALSE)
+      toks <- trimws(toks)
+      toks <- toks[nzchar(toks)]
+      if (!length(toks)) return("")
+      paste(toks, collapse = ", ")
+    }, character(1))
+    
+    chunks2 <- chunks2[nzchar(chunks2)]
+    paste(chunks2, collapse = " | ")
+  }, character(1))
+  
+  out[out == ""] <- NA_character_
+  out
+}
+
+.build_compound_rules_from_dictionary <- function(compound_dictionary) {
+  # compound_dictionary: character vector of expressions (ideally multi-word).
+  if (is.null(compound_dictionary) || !length(compound_dictionary)) {
+    return(list(patterns = character(0), replacements = character(0)))
   }
   
-  if (!file.exists(csv_path)) {
-    message("read_query_expansions(): expansions CSV not found, skipping expansion: ", csv_path)
-    return(tibble::tibble(query = character(0), expansion = character(0)))
+  expr <- tolower(trimws(as.character(compound_dictionary)))
+  expr <- expr[!is.na(expr) & nzchar(expr)]
+  expr <- unique(expr)
+  
+  # Keep multi-word only (compounds)
+  expr <- expr[stringr::str_count(expr, "\\S+") > 1]
+  if (!length(expr)) {
+    return(list(patterns = character(0), replacements = character(0)))
   }
   
-  x <- readr::read_csv(csv_path, show_col_types = FALSE)
+  # Longest first to avoid partial matching shadowing longer ones
+  ord <- order(stringr::str_count(expr, "\\S+"), nchar(expr), decreasing = TRUE)
+  expr <- expr[ord]
   
-  nms <- tolower(names(x))
-  names(x) <- nms
-  
-  q_col <- dplyr::case_when(
-    "query"      %in% nms ~ "query",
-    "expression" %in% nms ~ "expression",
-    "expr"       %in% nms ~ "expr",
-    "pattern"    %in% nms ~ "pattern",
-    "wildcard"   %in% nms ~ "wildcard",
-    TRUE ~ NA_character_
+  list(
+    patterns     = gsub(" ", ", ", expr, fixed = TRUE),
+    replacements = expr
   )
+}
+
+.apply_compound_substitutions <- function(features_vec, rules) {
+  if (is.null(features_vec) || !length(features_vec)) return(features_vec)
+  if (is.null(rules) || is.null(rules$patterns) || !length(rules$patterns)) return(features_vec)
   
-  e_col <- dplyr::case_when(
-    "expansion"  %in% nms ~ "expansion",
-    "expanded"   %in% nms ~ "expanded",
-    "term"       %in% nms ~ "term",
-    "value"      %in% nms ~ "value",
-    "expansions" %in% nms ~ "expansions",  # your file often uses this
-    TRUE ~ NA_character_
+  Reduce(
+    function(acc, i) gsub(rules$patterns[i], rules$replacements[i], acc, fixed = TRUE),
+    seq_along(rules$patterns),
+    init = features_vec
   )
-  
-  if (is.na(q_col) || is.na(e_col)) {
-    stop(
-      "read_query_expansions(): CSV must contain columns for query/expression/pattern and expansion/term/expansions.\n",
-      "Found columns: ", paste(names(x), collapse = ", "),
-      call. = FALSE
-    )
-  }
-  
-  out <- x |>
-    dplyr::transmute(
-      query_raw = trimws(as.character(.data[[q_col]])),
-      exp_raw   = as.character(.data[[e_col]])
-    ) |>
-    dplyr::filter(!is.na(query_raw), query_raw != "", !is.na(exp_raw), trimws(exp_raw) != "")
-  
-  # If we have a single "expansions" cell with comma-separated expansions, split to rows.
-  if (identical(e_col, "expansions")) {
-    out <- out |>
-      tidyr::separate_rows(exp_raw, sep = "\\s*,\\s*") |>
-      dplyr::mutate(exp_raw = trimws(exp_raw))
-  }
-  
-  out |>
-    dplyr::transmute(
-      query     = query_raw,
-      expansion = exp_raw
-    ) |>
-    dplyr::filter(!is.na(expansion), expansion != "") |>
-    dplyr::distinct()
 }
 
-# -------------------------------------------------------------------
-# Normalization helpers for feature strings
-# -------------------------------------------------------------------
-
-# Normalize a candidate feature phrase:
-# - lowercase
-# - convert commas/punctuation to spaces
-# - remove duplicate tokens (case-insensitive), preserving order
-# - collapse whitespace
-.normalize_feature_phrase <- function(x) {
-  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) return(NA_character_)
+.split_features_final <- function(features_fixed) {
+  # Input: character vector. Output: list of character vectors (one per row).
+  if (is.null(features_fixed)) return(list())
   
-  s <- tolower(trimws(as.character(x)))
+  chunks_list <- strsplit(features_fixed, "\\s*\\|\\s*", perl = TRUE)
   
-  # Treat commas as separators; also strip light punctuation to avoid "urban)" etc.
-  s <- gsub("[,;/|]+", " ", s, perl = TRUE)
-  s <- gsub("[()\\[\\]{}\"']", " ", s, perl = TRUE)
-  
-  # Collapse multiple spaces
-  s <- gsub("\\s+", " ", s, perl = TRUE)
-  s <- trimws(s)
-  if (!nzchar(s)) return(NA_character_)
-  
-  # Tokenize and de-duplicate tokens inside the phrase
-  toks <- unlist(strsplit(s, "\\s+", perl = TRUE), use.names = FALSE)
-  toks <- toks[nzchar(toks)]
-  if (!length(toks)) return(NA_character_)
-  
-  # Deduplicate while preserving first occurrence
-  toks <- toks[!duplicated(toks)]
-  s2 <- paste(toks, collapse = " ")
-  if (!nzchar(s2)) return(NA_character_)
-  
-  s2
+  lapply(chunks_list, function(chunks) {
+    if (!length(chunks)) return(character(0))
+    
+    toks <- unlist(strsplit(chunks, "\\s*,\\s*", perl = TRUE), use.names = FALSE)
+    toks <- tolower(trimws(toks))
+    toks <- toks[nzchar(toks)]
+    if (!length(toks)) return(character(0))
+    
+    sort(unique(toks))
+  })
 }
 
-# Split text2sdg features field into items.
-# Input looks like: "Urban, Planning" or "work, work, work" etc.
-.parse_features_items <- function(x) {
-  if (is.null(x) || is.na(x) || !nzchar(trimws(x))) return(character(0))
+.get_dictionary_terms <- function(sdg_query_dictionary) {
+  if (is.null(sdg_query_dictionary) || !nrow(sdg_query_dictionary)) return(character(0))
   
-  items <- unlist(strsplit(x, "\\s*[|;]\\s*|\\r?\\n+", perl = TRUE), use.names = FALSE)
-  items <- trimws(items)
-  items[nzchar(items)]
-}
-
-
-# Expand one wildcard query like "child*" -> multiple expansions (if present)
-expand_wildcard_term <- function(term, expansions_tbl) {
-  if (is.null(term) || is.na(term) || !nzchar(trimws(term))) return(character(0))
-  t <- trimws(term)
-  
-  if (!grepl("\\*", t, fixed = TRUE)) return(t)
-  
-  if (is.null(expansions_tbl) || !nrow(expansions_tbl)) return(t)
-  
-  ex <- expansions_tbl$expansion[expansions_tbl$query == t]
-  ex <- unique(trimws(ex))
-  ex <- ex[nzchar(ex)]
-  
-  if (!length(ex)) t else ex
-}
-
-# Extract a character vector of dictionary terms from a dictionary object (flexible)
-.get_dictionary_terms <- function(dict) {
-  if (is.null(dict) || !nrow(dict)) return(character(0))
-  
-  nms <- names(dict)
   col <- dplyr::case_when(
-    "expression" %in% nms ~ "expression",
-    "term"       %in% nms ~ "term",
-    "feature"    %in% nms ~ "feature",
-    "query"      %in% nms ~ "query",
-    TRUE ~ NA_character_
+    "expression" %in% names(sdg_query_dictionary) ~ "expression",
+    "term"       %in% names(sdg_query_dictionary) ~ "term",
+    TRUE ~ names(sdg_query_dictionary)[1]
   )
   
-  if (is.na(col)) return(character(0))
-  
-  terms <- tolower(trimws(as.character(dict[[col]])))
+  terms <- tolower(trimws(as.character(sdg_query_dictionary[[col]])))
   terms <- terms[!is.na(terms) & nzchar(terms)]
   unique(terms)
 }
 
 # -------------------------------------------------------------------
-# Public: Build a long table of normalized(+expanded) features from hits
+# Public: one feature per row (after compound recomposition)
 # -------------------------------------------------------------------
-extract_features_long <- function(hits, sdg_cfg, sdg_query_dictionary = NULL) {
+
+extract_features_long <- function(
+    hits,
+    sdg_cfg,
+    compound_rules = NULL,
+    compound_dictionary = NULL,
+    sdg_query_dictionary = NULL,
+    ...
+) {
   if (!nrow(hits) || !"features" %in% names(hits)) {
     return(tibble::tibble(
       document_number = character(0),
@@ -173,6 +149,7 @@ extract_features_long <- function(hits, sdg_cfg, sdg_query_dictionary = NULL) {
       query_id        = integer(0),
       feature         = character(0),
       feature_raw     = character(0),
+      feature_fixed   = character(0),
       in_dictionary   = logical(0)
     ))
   }
@@ -186,73 +163,60 @@ extract_features_long <- function(hits, sdg_cfg, sdg_query_dictionary = NULL) {
     )
   }
   
-  # Optional expansions (mainly useful if any feature ever contains '*')
-  expansions_path <- sdg_cfg$queries_expansions_csv %||% ""
-  expansions_tbl  <- read_query_expansions(expansions_path)
-  
-  # Dictionary terms (optional flag; does not filter by default)
-  dict_terms <- .get_dictionary_terms(sdg_query_dictionary)
-  
-  # Some text2sdg outputs include query_id; if missing, keep NA_integer_
   if (!"query_id" %in% names(hits)) hits$query_id <- NA_integer_
   
-  tmp <- hits |>
-    dplyr::mutate(
-      feature_raw = as.character(features),
-      .items      = lapply(feature_raw, .parse_features_items)
-    ) |>
-    tidyr::unnest(.items, keep_empty = FALSE) |>
-    dplyr::transmute(
-      document_number,
-      section,
-      system = as.character(system),
-      sdg    = as.character(sdg),
-      query_id = suppressWarnings(as.integer(query_id)),
-      feature_raw,
-      feature_item = as.character(.items)
-    ) |>
-    dplyr::filter(!is.na(feature_item), nzchar(trimws(feature_item)))
-  
-  if (!nrow(tmp)) {
-    return(tibble::tibble(
-      document_number = character(0),
-      section         = character(0),
-      system          = character(0),
-      sdg             = character(0),
-      query_id        = integer(0),
-      feature         = character(0),
-      feature_raw     = character(0),
-      in_dictionary   = logical(0)
-    ))
-  }
-  
-  # Normalize (lowercase + dedupe tokens) then optional wildcard expansion
-  expanded <- tmp |>
-    dplyr::mutate(
-      feature_norm = vapply(feature_item, .normalize_feature_phrase, character(1)),
-      feature_norm = dplyr::na_if(feature_norm, "")
-    ) |>
-    dplyr::filter(!is.na(feature_norm), feature_norm != "") |>
-    dplyr::mutate(
-      feature = lapply(feature_norm, expand_wildcard_term, expansions_tbl = expansions_tbl)
-    ) |>
-    tidyr::unnest(feature, keep_empty = FALSE) |>
-    dplyr::mutate(
-      feature = vapply(feature, .normalize_feature_phrase, character(1)),
-      feature = dplyr::na_if(feature, "")
-    ) |>
-    dplyr::filter(!is.na(feature), feature != "") |>
-    dplyr::distinct(document_number, section, system, sdg, query_id, feature, feature_raw)
-  
-  
-  if (length(dict_terms)) {
-    expanded <- expanded |>
-      dplyr::mutate(in_dictionary = feature %in% dict_terms)
+  # Determine compound rules:
+  # - If compound_rules is provided, use it.
+  # - Else if compound_dictionary is provided, build rules from it.
+  if (is.null(compound_rules)) {
+    compound_rules <- .build_compound_rules_from_dictionary(compound_dictionary)
   } else {
-    expanded <- expanded |>
-      dplyr::mutate(in_dictionary = NA)
+    # ensure expected structure
+    if (is.null(compound_rules$patterns) || is.null(compound_rules$replacements)) {
+      stop(
+        "extract_features_long(): compound_rules must be a list with `patterns` and `replacements`.",
+        call. = FALSE
+      )
+    }
   }
   
-  expanded |>
-    dplyr::select(document_number, section, system, sdg, query_id, feature, feature_raw, in_dictionary)
+  dict_terms <- .get_dictionary_terms(sdg_query_dictionary)
+  
+  df <- tibble::tibble(
+    document_number = as.character(hits$document_number),
+    section         = as.character(hits$section),
+    system          = as.character(hits$system),
+    sdg             = as.character(hits$sdg),
+    query_id        = suppressWarnings(as.integer(hits$query_id)),
+    feature_raw     = as.character(hits$features)
+  )
+  
+  # 1) Normalise so fixed patterns match
+  df$feature_norm <- .normalize_features_commas(df$feature_raw)
+  
+  # 2) Apply compound recomposition substitutions
+  df$feature_fixed <- .apply_compound_substitutions(df$feature_norm, compound_rules)
+  
+  # 3) Split to final features (comma tokens), keeping compounds intact
+  feat_list <- .split_features_final(df$feature_fixed)
+  
+  out <- df |>
+    dplyr::mutate(.feat = feat_list) |>
+    tidyr::unnest(.feat, keep_empty = FALSE) |>
+    dplyr::rename(feature = .feat) |>
+    dplyr::mutate(feature = tolower(trimws(as.character(.data$feature)))) |>
+    dplyr::filter(!is.na(.data$feature), nzchar(.data$feature)) |>
+    dplyr::distinct(
+      .data$document_number, .data$section, .data$system, .data$sdg, .data$query_id,
+      .data$feature, .data$feature_raw, .data$feature_fixed
+    ) |>
+    dplyr::mutate(
+      in_dictionary = if (length(dict_terms)) (.data$feature %in% dict_terms) else NA
+    ) |>
+    dplyr::select(
+      document_number, section, system, sdg, query_id,
+      feature, feature_raw, feature_fixed, in_dictionary
+    )
+  
+  out
 }

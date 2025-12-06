@@ -1,198 +1,258 @@
 # File: src/pipelines/03_sdg_detect/functions/40_outputs.R
 # Purpose:
-#   SDG detection (text2sdg) - reviewer-friendly outputs.
+#   SDG detection (text2sdg) - final pipeline outputs.
 #
 # Contains:
-#   - build_guides_sdg_summary(): one row per course with global + per-section SDG fields
-#   - build_guides_sdg_review(): one row per detected SDG (course repeats), for manual review
+#   - build_guides_sdg_summary(): 1 row per course with per-section lists only:
+#       - sdg_sdgs_<section>
+#       - sdg_systems_<section>
+#       - features_<section>
+#   - build_guides_sdg_review(): 1 row per detected SDG (course repeats),
+#       with section/system/feature lists (no hit counts).
 #
-# Additions (this refactor):
-#   - Optionally attach feature-based summaries derived from `features_long`.
-#     (No assumptions about any future visualization target.)
+# Notes:
+#   - Avoids counts, totals, top-N.
+#   - Requires collapse_unique_text() (src/common).
 
+.build_section_ids <- function(sdg_cfg, sdg_hits_long) {
+  ids <- character(0)
+  
+  if (!is.null(sdg_cfg$combine_groups)) {
+    ids <- unlist(purrr::map(sdg_cfg$combine_groups, "id"))
+  }
+  
+  ids <- as.character(ids)
+  ids <- ids[!is.na(ids) & nzchar(ids)]
+  
+  if (!length(ids) &&
+      !is.null(sdg_hits_long) && nrow(sdg_hits_long) &&
+      "section" %in% names(sdg_hits_long)) {
+    ids <- unique(as.character(sdg_hits_long$section))
+    ids <- ids[!is.na(ids) & nzchar(ids)]
+  }
+  
+  unique(ids)
+}
+
+.coalesce_chr <- function(x) {
+  dplyr::coalesce(as.character(x), "")
+}
+
+# Robust SDG id normalisation: always "SDG-XX"
+.normalize_sdg_id <- function(x) {
+  if (is.null(x)) return(NA_character_)
+  s <- as.character(x)
+  s <- trimws(s)
+  s[s == ""] <- NA_character_
+  
+  # Extract first number found
+  num <- stringr::str_extract(s, "\\d+")
+  num <- suppressWarnings(as.integer(num))
+  
+  out <- ifelse(is.na(num), NA_character_, paste0("SDG-", stringr::str_pad(num, 2, pad = "0")))
+  out
+}
+
+# If previous runs created .x/.y columns, merge them back safely
+.merge_xy_columns <- function(df, base_names) {
+  for (nm in base_names) {
+    xnm <- paste0(nm, ".x")
+    ynm <- paste0(nm, ".y")
+    
+    has_x <- xnm %in% names(df)
+    has_y <- ynm %in% names(df)
+    has_b <- nm  %in% names(df)
+    
+    if (has_x && has_y) {
+      df[[nm]] <- .coalesce_chr(df[[ynm]])
+      # if .y empty, fallback to .x
+      df[[nm]][df[[nm]] == ""] <- .coalesce_chr(df[[xnm]])[df[[nm]] == ""]
+      df[[xnm]] <- NULL
+      df[[ynm]] <- NULL
+    } else if (!has_b && has_x) {
+      names(df)[names(df) == xnm] <- nm
+    } else if (!has_b && has_y) {
+      names(df)[names(df) == ynm] <- nm
+    }
+    
+    if (nm %in% names(df)) {
+      df[[nm]] <- .coalesce_chr(df[[nm]])
+    }
+  }
+  df
+}
+
+# -------------------------------------------------------------------
+# build_guides_sdg_summary(): per-section lists only
+# -------------------------------------------------------------------
 build_guides_sdg_summary <- function(guides_translated, sdg_hits_long, sdg_cfg, features_long = NULL) {
   if (!"document_number" %in% names(guides_translated)) {
     stop("build_guides_sdg_summary(): guides_translated must contain document_number.", call. = FALSE)
   }
-  
-  if (!nrow(guides_translated)) {
-    return(guides_translated)
-  }
+  if (!nrow(guides_translated)) return(guides_translated)
   
   out <- guides_translated |>
     dplyr::distinct(document_number, .keep_all = TRUE)
   
-  # ------------------------------------------------------------------
-  # SDG-level summaries (existing behavior)
-  # ------------------------------------------------------------------
-  if (!nrow(sdg_hits_long)) {
-    out <- out |>
+  list_sep     <- sdg_cfg$list_sep %||% ", "
+  sdgs_sep     <- sdg_cfg$sdgs_sep %||% list_sep
+  systems_sep  <- sdg_cfg$systems_sep %||% list_sep
+  features_sep <- sdg_cfg$features_terms_sep %||% sdg_cfg$features_sep %||% list_sep
+  
+  section_ids <- .build_section_ids(sdg_cfg, sdg_hits_long)
+  
+  # -------------------------
+  # SDG + system lists per section
+  # -------------------------
+  if (!is.null(sdg_hits_long) && nrow(sdg_hits_long)) {
+    hits2 <- sdg_hits_long |>
       dplyr::mutate(
-        sdg_any        = FALSE,
-        sdg_n_distinct = 0L,
-        sdg_sdgs       = "",
-        sdg_n_systems  = 0L,
-        sdg_systems    = "",
-        sdg_total_hits = 0L
-      )
-  } else {
-    global <- sdg_hits_long |>
-      dplyr::mutate(sdg_id = sdg_to_id(sdg)) |>
-      dplyr::group_by(document_number) |>
-      dplyr::summarise(
-        sdg_any        = TRUE,
-        sdg_n_distinct = dplyr::n_distinct(sdg_id),
-        sdg_sdgs       = collapse_unique_text(sdg_id, sep = ", "),
-        sdg_n_systems  = dplyr::n_distinct(system),
-        sdg_systems    = collapse_unique_text(system, sep = ", "),
-        sdg_total_hits = sum(n_hits, na.rm = TRUE),
-        .groups = "drop"
-      )
+        sdg_id  = .normalize_sdg_id(.data$sdg),
+        section = as.character(.data$section),
+        system  = as.character(.data$system)
+      ) |>
+      dplyr::filter(!is.na(.data$sdg_id), nzchar(.data$sdg_id)) |>
+      dplyr::filter(!is.na(.data$section), nzchar(.data$section)) |>
+      dplyr::filter(!is.na(.data$system), nzchar(.data$system))
     
-    by_section <- sdg_hits_long |>
-      dplyr::mutate(sdg_id = sdg_to_id(sdg)) |>
-      dplyr::group_by(document_number, section) |>
+    by_section <- hits2 |>
+      dplyr::group_by(.data$document_number, .data$section) |>
       dplyr::summarise(
-        n_distinct = dplyr::n_distinct(sdg_id),
-        sdgs       = collapse_unique_text(sdg_id,  sep = ", "),
-        n_systems  = dplyr::n_distinct(system),
-        systems    = collapse_unique_text(system,  sep = ", "),
-        total_hits = sum(n_hits, na.rm = TRUE),
+        sdgs    = collapse_unique_text(.data$sdg_id,  sep = sdgs_sep),
+        systems = collapse_unique_text(.data$system, sep = systems_sep),
         .groups = "drop"
       ) |>
       tidyr::pivot_wider(
-        id_cols = document_number,
-        names_from = section,
-        values_from = c(n_distinct, sdgs, n_systems, systems, total_hits),
+        id_cols = .data$document_number,
+        names_from = .data$section,
+        values_from = c(sdgs, systems),
         names_glue = "sdg_{.value}_{section}"
       )
     
     out <- out |>
-      dplyr::left_join(global, by = "document_number") |>
-      dplyr::left_join(by_section, by = "document_number") |>
-      dplyr::mutate(
-        sdg_any        = dplyr::coalesce(sdg_any, FALSE),
-        sdg_n_distinct = dplyr::coalesce(as.integer(sdg_n_distinct), 0L),
-        sdg_sdgs       = dplyr::coalesce(sdg_sdgs, ""),
-        sdg_n_systems  = dplyr::coalesce(as.integer(sdg_n_systems), 0L),
-        sdg_systems    = dplyr::coalesce(sdg_systems, ""),
-        sdg_total_hits = dplyr::coalesce(as.integer(sdg_total_hits), 0L)
-      )
+      dplyr::left_join(by_section, by = "document_number")
   }
   
-  # ------------------------------------------------------------------
-  # Feature-level summaries (new, optional)
-  # ------------------------------------------------------------------
+  # Ensure expected sdg_*_<section> columns exist and are clean (and fix legacy .x/.y)
+  if (length(section_ids)) {
+    want_sdgs <- paste0("sdg_sdgs_", section_ids)
+    want_sys  <- paste0("sdg_systems_", section_ids)
+    
+    out <- .merge_xy_columns(out, c(want_sdgs, want_sys))
+    
+    for (nm in c(want_sdgs, want_sys)) {
+      if (!nm %in% names(out)) out[[nm]] <- ""
+      out[[nm]] <- .coalesce_chr(out[[nm]])
+    }
+  }
+  
+  # -------------------------
+  # Feature lists per section
+  # -------------------------
   if (!is.null(features_long) && nrow(features_long)) {
-    # We aggregate features in two ways:
-    #   1) Global per-document stats + top list (features_*)
-    #   2) Per-section wide columns (features_*_<section>)
-    features_counts <- summarise_features_long(features_long)
+    feat2 <- features_long |>
+      dplyr::mutate(
+        section = as.character(.data$section),
+        feature = tolower(trimws(as.character(.data$feature)))
+      ) |>
+      dplyr::filter(!is.na(.data$section), nzchar(.data$section)) |>
+      dplyr::filter(!is.na(.data$feature), nzchar(.data$feature))
     
-    feat_doc <- summarise_features_per_document(
-      features_counts,
-      top_n = as.integer(sdg_cfg$features_top_n %||% 30L),
-      sep   = sdg_cfg$features_sep %||% ";\n",
-      terms_sep = sdg_cfg$features_terms_sep %||% ", "
-    )
-    
-    feat_by_section <- summarise_features_per_document_section(
-      features_counts,
-      top_n = as.integer(sdg_cfg$features_top_n %||% 30L),
-      sep   = sdg_cfg$features_sep %||% ";\n"
-    )
+    feat_by_section <- feat2 |>
+      dplyr::group_by(.data$document_number, .data$section) |>
+      dplyr::summarise(
+        features = collapse_unique_text(.data$feature, sep = features_sep),
+        .groups = "drop"
+      ) |>
+      tidyr::pivot_wider(
+        id_cols = .data$document_number,
+        names_from = .data$section,
+        values_from = .data$features,
+        names_glue = "features_{section}"
+      )
     
     out <- out |>
-      dplyr::left_join(feat_doc, by = "document_number") |>
-      dplyr::left_join(feat_by_section, by = "document_number") |>
-      dplyr::mutate(
-        features_n_distinct = dplyr::coalesce(as.integer(features_n_distinct), 0L),
-        features_total      = dplyr::coalesce(as.integer(features_total), 0L),
-        features_top        = dplyr::coalesce(features_top, "")
-      )
-  } else {
-    # Provide stable empty columns so downstream export code is simpler.
-    out <- out |>
-      dplyr::mutate(
-        features_n_distinct = 0L,
-        features_total      = 0L,
-        features_top        = ""
-      )
+      dplyr::left_join(feat_by_section, by = "document_number")
+  }
+  
+  # Ensure expected features_<section> columns exist and are clean (and fix legacy .x/.y)
+  if (length(section_ids)) {
+    want_feat <- paste0("features_", section_ids)
+    
+    out <- .merge_xy_columns(out, want_feat)
+    
+    for (nm in want_feat) {
+      if (!nm %in% names(out)) out[[nm]] <- ""
+      out[[nm]] <- .coalesce_chr(out[[nm]])
+    }
   }
   
   out
 }
 
+# -------------------------------------------------------------------
+# build_guides_sdg_review(): 1 row per (document_number, sdg_id)
+# -------------------------------------------------------------------
 build_guides_sdg_review <- function(guides_translated, sdg_hits_long, sdg_cfg, features_long = NULL) {
   if (!"document_number" %in% names(guides_translated)) {
     stop("build_guides_sdg_review(): guides_translated must contain document_number.", call. = FALSE)
   }
   
-  if (!nrow(sdg_hits_long)) {
-    return(
-      tibble::tibble(
-        document_number = character(0),
-        sdg_id          = character(0),
-        sections        = character(0),
-        systems         = character(0),
-        total_hits      = integer(0)
-      )
-    )
+  list_sep     <- sdg_cfg$list_sep %||% ", "
+  systems_sep  <- sdg_cfg$systems_sep %||% list_sep
+  features_sep <- sdg_cfg$features_terms_sep %||% sdg_cfg$features_sep %||% list_sep
+  
+  if (is.null(sdg_hits_long) || !nrow(sdg_hits_long)) {
+    return(tibble::tibble(
+      document_number = character(0),
+      sdg_id          = character(0),
+      sections        = character(0),
+      systems         = character(0),
+      features        = character(0)
+    ))
   }
   
-  global <- sdg_hits_long |>
-    dplyr::mutate(sdg_id = sdg_to_id(sdg)) |>
-    dplyr::group_by(document_number, sdg_id) |>
-    dplyr::summarise(
-      sections   = collapse_unique_text(section, sep = ", "),
-      systems    = collapse_unique_text(system,  sep = ", "),
-      total_hits = sum(n_hits, na.rm = TRUE),
-      .groups = "drop"
-    )
-  
-  by_section <- sdg_hits_long |>
-    dplyr::mutate(sdg_id = sdg_to_id(sdg)) |>
-    dplyr::group_by(document_number, sdg_id, section) |>
-    dplyr::summarise(
-      hits_section    = sum(n_hits, na.rm = TRUE),
-      systems_section = collapse_unique_text(system, sep = ", "),
-      .groups = "drop"
+  hits2 <- sdg_hits_long |>
+    dplyr::mutate(
+      sdg_id  = .normalize_sdg_id(.data$sdg),
+      section = as.character(.data$section),
+      system  = as.character(.data$system)
     ) |>
-    tidyr::pivot_wider(
-      id_cols = c(document_number, sdg_id),
-      names_from = section,
-      values_from = c(hits_section, systems_section),
-      names_glue = "{.value}_{section}"
+    dplyr::filter(!is.na(.data$sdg_id), nzchar(.data$sdg_id))
+  
+  out <- hits2 |>
+    dplyr::group_by(.data$document_number, .data$sdg_id) |>
+    dplyr::summarise(
+      sections = collapse_unique_text(.data$section, sep = list_sep),
+      systems  = collapse_unique_text(.data$system,  sep = systems_sep),
+      .groups = "drop"
     )
   
-  labels_path <- sdg_cfg$labels_csv %||% "resources/sdg_labels.csv"
-  labels_tbl  <- tryCatch(read_sdg_labels(labels_path), error = function(e) NULL)
-  
-  out <- global |>
-    dplyr::left_join(by_section, by = c("document_number", "sdg_id"))
-  
-  if (!is.null(labels_tbl) && nrow(labels_tbl)) {
-    out <- out |>
-      dplyr::left_join(labels_tbl, by = "sdg_id")
-  }
-  
-  # Optional: attach per (document, sdg) feature summaries (compact string)
+  # Attach features per (document, sdg)
   if (!is.null(features_long) && nrow(features_long)) {
-    feat_sdg <- features_long |>
-      dplyr::mutate(sdg_id = sdg_to_id(sdg)) |>
-      dplyr::count(document_number, sdg_id, feature, name = "n") |>
-      dplyr::arrange(document_number, sdg_id, dplyr::desc(n), feature) |>
-      dplyr::group_by(document_number, sdg_id) |>
-      dplyr::slice_head(n = as.integer(sdg_cfg$features_top_n %||% 30L)) |>
+    feat2 <- features_long |>
+      dplyr::mutate(
+        sdg_id  = .normalize_sdg_id(.data$sdg),
+        feature = tolower(trimws(as.character(.data$feature)))
+      ) |>
+      dplyr::filter(!is.na(.data$sdg_id), nzchar(.data$sdg_id)) |>
+      dplyr::filter(!is.na(.data$feature), nzchar(.data$feature))
+    
+    feat_sdg <- feat2 |>
+      dplyr::group_by(.data$document_number, .data$sdg_id) |>
       dplyr::summarise(
-        features_top = paste0(feature, collapse = sdg_cfg$features_sep %||% ";\n"),
+        features = collapse_unique_text(.data$feature, sep = features_sep),
         .groups = "drop"
       )
     
     out <- out |>
-      dplyr::left_join(feat_sdg, by = c("document_number", "sdg_id")) |>
-      dplyr::mutate(features_top = dplyr::coalesce(features_top, ""))
+      dplyr::left_join(feat_sdg, by = c("document_number", "sdg_id"))
   }
   
-  out
+  out |>
+    dplyr::mutate(
+      sections = .coalesce_chr(.data$sections),
+      systems  = .coalesce_chr(.data$systems),
+      features = .coalesce_chr(.data$features)
+    )
 }

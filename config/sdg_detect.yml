@@ -3,9 +3,12 @@
 # sdg_detect section
 # -------------------------------------------------------------------
 
-# Query dictionary settings (used for analysis/wordclouds; independent from detection)
-# - expansions file is a curated list to replace wildcard (*) expressions with full forms
+# Query dictionary settings (independent from detection):
+# - queries_expansions_csv: curated expansions for wildcard (*) queries. Used to BUILD/UPDATE dictionaries,
+#   not required for running detection itself.
+# - dictionary_csv: curated expression list (single + multi-word) used for feature recomposition and OOV checks.
 queries_expansions_csv: "resources/asterisc_expressions_expanded.csv"
+dictionary_csv: "resources/unique_expression.csv"
 
 # Detection method:
 #   - "systems": run specified systems and aggregate hits

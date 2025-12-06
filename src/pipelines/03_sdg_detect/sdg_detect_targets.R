@@ -1,17 +1,17 @@
-# File: src/pipelines/03_detect_sdg/sdg_detect_targets.R
+# File: src/pipelines/03_sdg_detect/sdg_detect_targets.R
 # Targets for the SDG detection phase (text2sdg).
 #
 # Assumptions:
 #   - The translation phase produces `guides_translated` with `document_number`
-#     and the *_en columns referenced in config/sdg_detection.yml (combine_groups)
+#     and the *_en columns referenced in config/sdg_detect.yml (combine_groups)
 #   - Functions used here are defined in:
-#       src/pipelines/03_detect_sdg/functions/*.R  (loaded by _targets.R)
+#       src/pipelines/03_sdg_detect/functions/*.R  (loaded by _targets.R)
 
 library(targets)
 
 targets_sdg <- list(
   
-  # sdg_config is provided by 00_config (config/sdg_detection.yml)
+  # sdg_config is provided by 00_config (config/sdg_detect.yml)
   
   # 0a) Enable switch (defaults to TRUE if not present)
   tar_target(
@@ -19,13 +19,58 @@ targets_sdg <- list(
     is.null(sdg_config$enabled) || isTRUE(sdg_config$enabled)
   ),
   
-  # 0b) Query dictionary (for later analysis)
+  # 0b) Query dictionary (for later analysis + compounds source)
+  # Priority:
+  #   1) sdg_config$dictionary_csv (curated; stable)
+  #   2) fallback to text2sdg queries + expansions
   tar_target(
     sdg_query_dictionary,
     build_text2sdg_query_dictionary(
       systems = sdg_config$systems %||% c("Aurora","Elsevier","Auckland","SIRIS","SDGO","SDSN"),
-      expansions_csv = sdg_config$queries_expansions_csv %||% "resources/asterisc_expressions_expanded.csv"
+      expansions_csv = sdg_config$queries_expansions_csv %||% "resources/asterisc_expressions_expanded.csv",
+      dictionary_csv = sdg_config$dictionary_csv %||% "",
+      keep_single_word = TRUE
     )
+  ),
+  
+  # 0c) Compounds: multi-word expressions used to re-compose comma-split features
+  # Example: "quality of life" -> fixes "quality, of, life"
+  tar_target(
+    sdg_compounds,
+    {
+      if (!nrow(sdg_query_dictionary) || !"expression" %in% names(sdg_query_dictionary)) {
+        character(0)
+      } else {
+        x <- tolower(trimws(as.character(sdg_query_dictionary$expression)))
+        x <- x[!is.na(x) & nzchar(x)]
+        x <- x[stringr::str_count(x, "\\S+") > 1]
+        unique(x)
+      }
+    }
+  ),
+  
+  # 0d) Precomputed compound substitution rules (fast + deterministic)
+  # patterns: "quality of life" -> "quality, of, life"
+  # replacements: "quality of life"
+  tar_target(
+    sdg_compound_rules,
+    {
+      if (!length(sdg_compounds)) {
+        list(patterns = character(0), replacements = character(0))
+      } else {
+        expr <- unique(tolower(trimws(as.character(sdg_compounds))))
+        expr <- expr[!is.na(expr) & nzchar(expr)]
+        
+        # longest first to avoid partial matches
+        ord <- order(stringr::str_count(expr, "\\S+"), nchar(expr), decreasing = TRUE)
+        expr <- expr[ord]
+        
+        list(
+          patterns = gsub(" ", ", ", expr, fixed = TRUE),
+          replacements = expr
+        )
+      }
+    }
   ),
   
   # 1) Build SDG input text:
@@ -49,7 +94,7 @@ targets_sdg <- list(
         missing_cols <- setdiff(needed_cols, names(guides_translated))
         if (length(missing_cols)) {
           stop(
-            "sdg_detection: missing translated columns in guides_translated: ",
+            "sdg_detect: missing translated columns in guides_translated: ",
             paste(missing_cols, collapse = ", "),
             "\n\nAvailable columns are:\n",
             paste(names(guides_translated), collapse = ", "),
@@ -96,7 +141,7 @@ targets_sdg <- list(
     summarise_sdg_hits_long(sdg_hits_raw)
   ),
   
-  # 5b) expanded features (one row per feature term)
+  # 5b) Expanded features (one row per feature term)
   tar_target(
     sdg_features_long,
     {
@@ -108,17 +153,25 @@ targets_sdg <- list(
           sdg             = character(0),
           query_id        = integer(0),
           feature         = character(0),
-          feature_raw     = character(0)
+          feature_raw     = character(0),
+          feature_fixed   = character(0),
+          in_dictionary   = logical(0)
         )
       } else {
         if (!exists("extract_features_long", mode = "function", inherits = TRUE)) {
           stop(
             "sdg_features_long: extract_features_long() not found.\n",
-            "Make sure src/pipelines/03_detect_sdg/functions/15_queries.R is sourced by _targets.R.",
+            "Make sure src/pipelines/03_sdg_detect/functions/15_queries.R is sourced by _targets.R.",
             call. = FALSE
           )
         }
-        extract_features_long(sdg_hits_raw, sdg_config, sdg_query_dictionary)
+        
+        extract_features_long(
+          hits = sdg_hits_raw,
+          sdg_cfg = sdg_config,
+          compound_rules = sdg_compound_rules,
+          sdg_query_dictionary = sdg_query_dictionary
+        )
       }
     }
   ),
@@ -135,13 +188,13 @@ targets_sdg <- list(
     attach_sdg_to_guides(guides_translated, sdg_hits_wide)
   ),
   
-  # 8) Summary per course (global + per section) + feature stats (optional)
+  # 8) Summary per course (per-section lists only)
   tar_target(
     guides_sdg_summary,
     build_guides_sdg_summary(guides_translated, sdg_hits_long, sdg_config, sdg_features_long)
   ),
   
-  # 9) Review table per detected SDG + optional feature snippets
+  # 9) Review table per detected SDG (lists only)
   tar_target(
     guides_sdg_review,
     build_guides_sdg_review(guides_translated, sdg_hits_long, sdg_config, sdg_features_long)
